@@ -1,0 +1,54 @@
+{
+  "modules": {
+    "capture": true,
+    "ocr": true,
+    "hotstrings": true,
+    "workflows": true
+  },
+  "capture": {
+    "windowDetect": true,
+    "magnifier": true,
+    "saveFolder": "",
+    "hotkeySnip": "F1",
+    "hotkeyPin": "F3",
+    "hotkeyTogglePins": "shift+F3"
+  },
+  "ocr": {
+    "engineDir": "engine\\PaddleOCR-json",
+    "language": "models/config_chinese.txt",
+    "layout": "multi_none",
+    "cpuThreads": 16,
+    "enableMkldnn": true,
+    "limitSideLen": 960,
+    "cls": false,
+    "idleExitSeconds": 600,
+    "copyResult": true,
+    "showResultWindow": false,
+    "hotkeyScreenshot": "win+alt+c",
+    "hotkeyClipboard": "win+alt+v"
+  },
+  "hotstrings": {
+    "file": "hotstrings.txt",
+    "acceptInjected": false
+  },
+  "workflows": [
+    {
+      "name": "示例：打开下载文件夹",
+      "hotkey": "",
+      "type": "open",
+      "target": "C:\\Users\\liyuc\\Downloads"
+    },
+    {
+      "name": "示例：输入今天日期",
+      "hotkey": "",
+      "type": "type",
+      "text": "{date}"
+    },
+    {
+      "name": "示例：截图识字（调用内置命令）",
+      "hotkey": "",
+      "type": "command",
+      "target": "ocr"
+    }
+  ]
+}

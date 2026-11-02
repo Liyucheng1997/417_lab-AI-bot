@@ -1,0 +1,32 @@
+# 我的 AI Bot 配置（修改后重启生效；面板里的模型/权限切换会写回本文件）
+
+# 模型：claude-opus-5-5 / claude-sonnet-5-5 / claude-haiku-5-5
+model: claude-opus-5-5
+# 思考深度：low / medium / high / xhigh / max
+effort: high
+
+# 权限策略：
+#   smart  —— 读取、截图、鼠标键盘等直接执行；删除文件、改注册表、关机、安装卸载等高危操作先弹窗确认（推荐）
+#   full   —— 全部自动执行，不询问
+#   strict —— 除只读操作外，每一步都要确认
+permission_policy: smart
+
+# 呼出/隐藏面板的全局快捷键（ctrl+alt+space 已被 Claude 桌面版占用）
+hotkey: ctrl+alt+b
+
+# Bot 的工作目录（留空 = 项目里的 workspace 文件夹，对话历史也按这个目录保存；
+# Bot 依然可以访问整台电脑的文件）
+cwd: ""
+
+# 面板宽度（像素）
+panel_width: 460
+
+# 是否加载你在 Claude Code 里配置的 MCP 服务器、技能和插件（~/.claude）
+load_user_settings: true
+
+# 额外的 MCP 服务器（格式同 Claude Code 的 mcpServers），例如：
+# extra_mcp_servers:
+#   filesystem:
+#     command: npx
+#     args: ["-y", "@modelcontextprotocol/server-filesystem", "D:/"]
+extra_mcp_servers: {}

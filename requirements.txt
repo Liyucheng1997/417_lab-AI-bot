@@ -1,0 +1,12 @@
+claude-agent-sdk>=0.2.176
+pywebview>=6.2
+pystray>=0.19
+pyautogui>=0.9.54
+pillow
+mss
+pyperclip
+pygetwindow
+psutil
+pywin32
+uiautomation
+pyyaml

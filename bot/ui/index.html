@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>我的 AI Bot</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header class="titlebar pywebview-drag-region">
+    <div class="brand pywebview-drag-region">
+      <span class="logo">B</span>
+      <span class="name">Bot</span>
+      <span class="status" id="status"><i></i><span>连接中</span></span>
+    </div>
+    <div class="actions">
+      <button class="icon-btn" id="btn-history" title="历史对话">
+        <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-new" title="新对话">
+        <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+      <button class="icon-btn active" id="btn-pin" title="置顶">
+        <svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 3h6l-1 6 4 4v2H6v-2l4-4z"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-settings" title="设置">
+        <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-hide" title="收起（快捷键再次呼出）">
+        <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 12h12"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="scroll">
+    <section id="welcome">
+      <div class="hello">
+        <span class="logo big">B</span>
+        <h1>有什么可以帮你？</h1>
+        <p class="muted">我可以操作这台电脑：运行命令、读写文件、打开软件、点击和输入。<br><span id="hotkey-hint"></span></p>
+      </div>
+      <div class="suggest">
+        <button class="chip">看看我屏幕上现在有什么</button>
+        <button class="chip">整理一下我的「下载」文件夹，按类型分好</button>
+        <button class="chip">查一下这台电脑的配置和磁盘空间</button>
+        <button class="chip">打开记事本，写一首关于秋天的小诗</button>
+      </div>
+    </section>
+    <div id="messages"></div>
+  </main>
+
+  <footer class="composer">
+    <div class="box">
+      <textarea id="input" rows="1" placeholder="让 Bot 帮你做点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
+      <div class="row">
+        <div class="pills">
+          <button class="pill" id="pill-model"></button>
+          <button class="pill" id="pill-policy"></button>
+        </div>
+        <button class="send" id="btn-send" title="发送">
+          <svg class="ico ico-send" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+          <svg class="ico ico-stop" width="12" height="12" viewBox="0 0 12 12"><rect width="12" height="12" rx="2.5" fill="currentColor"/></svg>
+        </button>
+      </div>
+    </div>
+  </footer>
+</div>
+<div id="toast-host" class="toast-host"></div>
+<script src="app.js"></script>
+</body>
+</html>

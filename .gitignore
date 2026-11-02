@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+data/
+workspace/
+sop/bin/logs/
+sop/bin/backup/
+
+# 打包产物（exe 和压缩包在 GitHub Release 里下载）
+build/
+dist/
+
+# 本机生成的启动脚本（含本机绝对路径，安装.bat 会重新生成）
+启动 Bot.vbs
+
+# 体积大的二进制：OCR 引擎约 300MB（随 Release 附带），SOP.exe 用 sop/build.ps1 编译
+sop/bin/engine/
+sop/bin/SOP.exe

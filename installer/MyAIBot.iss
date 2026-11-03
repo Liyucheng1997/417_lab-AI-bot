@@ -54,9 +54,12 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 [InstallDelete]
 ; 程序库整个换新，避免旧版本残留的 dll 冲突（配置和数据不在这里）
 Type: filesandordirs; Name: "{app}\_internal"
+; 旧版本的快捷方式图标（文件名带版本号，原因见 [Icons]）
+Type: files; Name: "{app}\MyAIBot-*.ico"
 
 [Files]
 Source: "{#SrcDir}\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SrcDir}\_internal\bot\ui\icon.ico"; DestDir: "{app}"; DestName: "MyAIBot-{#AppVersion}.ico"; Flags: ignoreversion
 Source: "{#SrcDir}\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "{#SrcDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SrcDir}\sop\README.md"; DestDir: "{app}\sop"; Flags: ignoreversion
@@ -71,8 +74,10 @@ Source: "{#SrcDir}\sop\bin\engine\*"; DestDir: "{app}\sop\bin\engine"; Flags: ig
 #endif
 
 [Icons]
-Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; Tasks: desktopicon
+; 快捷方式的图标单独指向带版本号的 .ico：资源管理器按文件路径缓存图标，
+; 指向 exe 的话换了图标桌面上还是旧的；每个版本换个文件名，缓存就不会过期
+Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; IconFilename: "{app}\MyAIBot-{#AppVersion}.ico"
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; IconFilename: "{app}\MyAIBot-{#AppVersion}.ico"; Tasks: desktopicon
 
 [Run]
 ; 换了图标后刷新 Windows 图标缓存，桌面 / 开始菜单快捷方式不再显示旧图标

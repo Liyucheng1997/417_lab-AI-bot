@@ -49,6 +49,86 @@
     return out.join('').replace(/\u0000(\d+)\u0000/g, (_, n) => blocks[n]);
   }
 
+  // ---------------- Logo：网站「时间与我」时钟的缩小版，按真实时间走 ----------------
+  // 外圈 = 今天过了多少（日），中圈 = 这个小时（分），内圈 = 这一分钟（秒）；颜色同 liyucheng.me 的 drawClock。
+  // 工作时彩虹环转得飞快、玻璃球轻轻呼吸；玻璃球的高光跟着鼠标走。
+  const C_DAY = ['#ffcc00', '#ff9500', '#ff3b30'], C_MIN = ['#af52de', '#ff2d55'], C_SEC = ['#5ac8fa', '#007aff'];
+  const RAINBOW = ['#5ac8fa', '#af52de', '#ff2d55', '#ff9500', '#ffcc00', '#34c759', '#5ac8fa'];
+  const TOP = -Math.PI / 2;
+  const logos = [...document.querySelectorAll('.logo')].map((el) => {
+    const c = document.createElement('canvas'); el.appendChild(c); return { el, c };
+  });
+  const look = { x: 0, y: 0 };
+  let spin = 0, lastLogo = 0;
+  function conic(g, from, frac, stops) {
+    const cg = g.createConicGradient(TOP + from, 0.5, 0.5);
+    const end = Math.min(frac, 1);
+    stops.forEach((s, i) => cg.addColorStop(end * i / (stops.length - 1), s));
+    if (end < 1) cg.addColorStop(Math.min(1, end + 0.0001), 'rgba(0,0,0,0)');
+    return cg;
+  }
+  function drawLogo(L, t) {
+    const size = L.el.clientWidth; if (!size) return;
+    const px = Math.round(size * (devicePixelRatio || 1));
+    if (L.c.width !== px) { L.c.width = L.c.height = px; }
+    const g = L.c.getContext('2d');
+    g.setTransform(px, 0, 0, px, 0, 0);     // 坐标单位 = 整个图标边长
+    g.clearRect(0, 0, 1, 1);
+    g.fillStyle = '#fff'; g.beginPath(); g.roundRect(0.004, 0.004, 0.992, 0.992, 0.225); g.fill();
+    g.strokeStyle = 'rgba(0,0,0,.08)'; g.lineWidth = 0.008; g.stroke();
+    const now = new Date();
+    const sec = (now.getSeconds() + now.getMilliseconds() / 1000) / 60;
+    const min = (now.getMinutes() + sec) / 60, day = (now.getHours() + min) / 24;
+    const small = size < 40;
+    const rings = small ? [[0.36, 0.115, day, C_DAY, 0]] : [
+      [0.375, 0.052, day, C_DAY, 0.042], [0.29, 0.04, min, C_MIN, 0.032], [0.215, 0.032, sec, C_SEC, 0.027]];
+    g.lineCap = 'round';
+    for (const [r, w, frac, stops, head] of rings) {
+      g.strokeStyle = 'rgba(29,29,31,.07)'; g.lineWidth = w;
+      g.beginPath(); g.arc(0.5, 0.5, r, 0, Math.PI * 2); g.stroke();
+      g.strokeStyle = conic(g, 0, frac, stops);
+      g.beginPath(); g.arc(0.5, 0.5, r, TOP, TOP + Math.max(frac, 0.002) * Math.PI * 2); g.stroke();
+      if (head) {
+        const a = TOP + frac * Math.PI * 2, x = 0.5 + Math.cos(a) * r, y = 0.5 + Math.sin(a) * r;
+        g.save(); g.shadowColor = stops[stops.length - 1]; g.shadowBlur = px * head * 0.9;
+        g.fillStyle = '#fff'; g.beginPath(); g.arc(x, y, head, 0, Math.PI * 2); g.fill(); g.restore();
+        g.fillStyle = stops[stops.length - 1]; g.beginPath(); g.arc(x, y, head * 0.55, 0, Math.PI * 2); g.fill();
+      }
+    }
+    // 中心玻璃球 + 彩虹环
+    const breathe = busy ? 1 + 0.05 * Math.sin(t / 180) : 1;
+    const R = (small ? 0.165 : 0.115) * breathe, ringW = small ? 0.05 : 0.018;
+    g.strokeStyle = conic(g, spin, 1, RAINBOW); g.lineWidth = ringW;
+    g.beginPath(); g.arc(0.5, 0.5, R + ringW * 0.9, 0, Math.PI * 2); g.stroke();
+    g.save(); g.shadowColor = 'rgba(0,0,0,.16)'; g.shadowBlur = px * R * 0.35; g.shadowOffsetY = px * R * 0.12;
+    const hx = 0.5 - R * 0.35 + look.x * R * 0.3, hy = 0.5 - R * 0.4 + look.y * R * 0.3;
+    const rg = g.createRadialGradient(hx, hy, R * 0.1, 0.5, 0.5, R);
+    rg.addColorStop(0, '#ffffff'); rg.addColorStop(0.72, '#f4f4f7'); rg.addColorStop(1, '#e8e8ee');
+    g.fillStyle = rg; g.beginPath(); g.arc(0.5, 0.5, R, 0, Math.PI * 2); g.fill(); g.restore();
+  }
+  function logoLoop(t) {
+    if (t - lastLogo > 33) {        // 30fps 足够
+      spin += (busy ? 0.16 : 0.012) * (t - lastLogo) / 33;
+      lastLogo = t;
+      logos.forEach((L) => drawLogo(L, t));
+    }
+    requestAnimationFrame(logoLoop);
+  }
+  requestAnimationFrame(logoLoop);
+  document.addEventListener('mousemove', (e) => {
+    const r = (logos[1] || logos[0]).el.getBoundingClientRect();
+    look.x = Math.max(-1, Math.min(1, (e.clientX - (r.left + r.width / 2)) / 220));
+    look.y = Math.max(-1, Math.min(1, (e.clientY - (r.top + r.height / 2)) / 220));
+  });
+  document.addEventListener('mouseleave', () => { look.x = 0; look.y = 0; });
+
+  // ---------------- 先别收起：菜单开着、输入框里有字时告诉 Python ----------------
+  let held = false;
+  function syncHold() {
+    const h = !!pop || !!document.querySelector('.viewer') || (document.activeElement === input && !!input.value.trim());
+    if (h !== held && api) { held = h; api.set_hold(h); }
+  }
+
   function nearBottom() { return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120; }
   function toBottom(force) { if (force || nearBottom()) requestAnimationFrame(() => { scroller.scrollTop = scroller.scrollHeight; }); }
   function add(node) { const stick = nearBottom(); $('#welcome').style.display = 'none'; msgs.appendChild(node); toBottom(stick); return node; }
@@ -60,7 +140,7 @@
   }
   function viewImage(src) {
     const v = el('div', 'viewer'); const img = el('img'); img.src = src; v.appendChild(img);
-    v.onclick = () => v.remove(); document.body.appendChild(v);
+    v.onclick = () => { v.remove(); syncHold(); }; document.body.appendChild(v); syncHold();
   }
 
   function setBusy(b) { busy = b; app.classList.toggle('busy', b); $('#btn-send').title = b ? '停止' : '发送'; }
@@ -68,6 +148,9 @@
     const map = { idle: '空闲', thinking: '工作中', connecting: '连接中', error: '出错' };
     const st = $('#status'); st.className = `status ${s}`; st.querySelector('span').textContent = map[s] || s;
   }
+  let typing = null;
+  function showTyping() { if (!typing) typing = add(el('div', 'msg bot typing', '<i></i><i></i><i></i>')); }
+  function hideTyping() { if (typing) { typing.remove(); typing = null; } }
   function endBot() {
     if (curBot) { curBot.classList.remove('streaming'); if (!curRaw.trim()) curBot.remove(); }
     curBot = null; curRaw = '';
@@ -78,10 +161,10 @@
     status(ev) {
       setStatus(ev.state);
       setBusy(ev.state === 'thinking');
-      if (ev.state === 'idle') { endBot(); curSteps = null; }
+      if (ev.state === 'idle') { hideTyping(); endBot(); curSteps = null; }
     },
     text_delta(ev) {
-      curSteps = null;
+      hideTyping(); curSteps = null;
       if (!curBot) { curBot = add(el('div', 'msg bot streaming')); curRaw = ''; }
       curRaw += ev.text;
       const stick = nearBottom();
@@ -90,13 +173,13 @@
     },
     text(ev) { handlers.text_delta({ text: ev.text }); },
     thinking(ev) {
-      endBot();
+      hideTyping(); endBot();
       const d = el('details', 'thinking');
       d.innerHTML = `<summary>${esc(ev.text.split('\n')[0].slice(0, 60))}…</summary><div>${esc(ev.text)}</div>`;
       add(d);
     },
     tool_use(ev) {
-      endBot();
+      hideTyping(); endBot();
       if (!curSteps) curSteps = add(el('div', 'steps'));
       const [name, ...rest] = ev.summary.split('  ');
       const s = el('div', 'step running');
@@ -116,7 +199,7 @@
       toBottom();
     },
     permission(ev) {
-      endBot(); curSteps = null;
+      hideTyping(); endBot(); curSteps = null;
       const c = el('div', 'perm');
       c.innerHTML = `<div class="perm-title">需要你确认：${esc(label(ev.short))}</div>
         <div class="perm-reason">${esc(ev.reason || '')}</div><pre>${esc(ev.detail)}</pre>
@@ -132,7 +215,7 @@
       toBottom(true);
     },
     result(ev) {
-      endBot(); curSteps = null;
+      hideTyping(); endBot(); curSteps = null;
       if (!ev.ok && ev.error && !/interrupt/i.test(ev.error)) add(el('div', 'notice err', esc(ev.error)));
     },
     rate_limit(ev) {
@@ -141,8 +224,13 @@
       const when = ev.resets_at ? `，${new Date(ev.resets_at * 1000).toLocaleString()} 重置` : '';
       add(el('div', 'notice', esc(`订阅额度${ev.status === 'rejected' ? '已用完' : '接近上限'}${pct}${when}`)));
     },
-    error(ev) { endBot(); add(el('div', 'notice err', esc(ev.message))); },
+    error(ev) { hideTyping(); endBot(); add(el('div', 'notice err', esc(ev.message))); },
     session() {},
+    shown() { app.classList.remove('enter'); void app.offsetWidth; app.classList.add('enter'); if (window.fluid) fluid.resume(); },
+    hidden() { if (window.fluid) fluid.pause(); },
+    focus() { input.focus(); },
+    suggestions(ev) { renderSuggestions(ev, true); },
+    suggestions_failed() { $('#btn-reshuffle').classList.remove('spinning'); if (!$('#suggest').children.length || $('#suggest .skeleton')) renderSuggestions(null, true); },
     update(ev) {
       const bar = $('#update-bar'), title = bar.querySelector('b'), sub = bar.querySelector('small');
       bar.hidden = false;
@@ -188,7 +276,10 @@
       autosize(); input.focus(); input.setSelectionRange(input.value.length, input.value.length);
       toast('已附上，补一句你的问题后按 Enter');
     },
-    clear() { msgs.innerHTML = ''; $('#welcome').style.display = ''; endBot(); curSteps = null; },
+    clear() {
+      msgs.innerHTML = ''; hideTyping(); endBot(); curSteps = null;
+      $('#welcome').style.display = ''; welcomeIn(); loadSuggestions(false);
+    },
   };
 
   // ---------------- 发送 ----------------
@@ -198,22 +289,65 @@
     if (!text || !api) return;
     if (busy) { toast('还在处理上一个任务，可以先点停止'); return; }
     add(el('div', 'msg user', esc(text)));
+    showTyping();
     toBottom(true);
-    input.value = ''; autosize();
+    input.value = ''; autosize(); syncHold();
     setBusy(true); setStatus('thinking');
     api.send(text);
   }
-  input.addEventListener('input', autosize);
+  input.addEventListener('input', () => { autosize(); syncHold(); });
+  input.addEventListener('focus', syncHold);
+  input.addEventListener('blur', syncHold);
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
     if (e.key === 'Escape') { if (busy) api.stop(); else api.hide(); }
   });
   $('#btn-send').onclick = () => (busy ? api.stop() : send());
-  document.querySelectorAll('.suggest .chip').forEach((c) => c.onclick = () => send(c.textContent));
+
+  // ---------------- 欢迎页：问候 + AI 猜你想做 ----------------
+  const FALLBACK = [
+    { icon: '👀', text: '看看我屏幕上现在有什么' },
+    { icon: '🗂️', text: '整理一下我的「下载」文件夹，按类型分好' },
+    { icon: '💻', text: '查一下这台电脑的配置和磁盘空间' },
+    { icon: '📝', text: '打开记事本，写一首关于秋天的小诗' },
+  ];
+  function greeting() {
+    const h = new Date().getHours();
+    const w = h < 5 ? '夜深了' : h < 11 ? '早上好' : h < 13 ? '中午好' : h < 18 ? '下午好' : '晚上好';
+    return state.nickname ? `${w}，${state.nickname}` : w;
+  }
+  function welcomeIn() {
+    $('#greet').textContent = greeting();
+    const w = $('#welcome'); w.classList.remove('in'); void w.offsetWidth; w.classList.add('in');
+  }
+  function renderSuggestions(data, animate) {
+    const box = $('#suggest');
+    const items = data && data.items && data.items.length ? data.items : FALLBACK;
+    $('#hint').textContent = data && data.hint ? data.hint : '我可以操作这台电脑：运行命令、读写文件、打开软件、点击和输入';
+    $('#hint').classList.toggle('ai', !!(data && data.hint));
+    $('#btn-reshuffle').classList.remove('spinning');
+    box.innerHTML = '';
+    items.forEach((it, i) => {
+      const c = el('button', `chip ${animate ? 'pop' : ''}`, `<span class="chip-ico">${esc(it.icon || '✨')}</span><span class="chip-text">${esc(it.text)}</span><span class="chip-go">→</span>`);
+      c.style.setProperty('--i', i);
+      c.onclick = () => send(it.text);
+      box.appendChild(c);
+    });
+  }
+  function skeleton() {
+    $('#suggest').innerHTML = [0, 1, 2, 3].map((i) => `<div class="chip skeleton" style="--i:${i}"></div>`).join('');
+  }
+  async function loadSuggestions(refresh) {
+    if (!api) return;
+    if (refresh) $('#btn-reshuffle').classList.add('spinning');
+    const cached = await api.suggestions(!!refresh);
+    if (cached) { if (!refresh) renderSuggestions(cached, true); } else if (!refresh) skeleton();
+  }
+  $('#btn-reshuffle').onclick = () => loadSuggestions(true);
 
   // ---------------- 弹出菜单 ----------------
   let pop = null;
-  function closePop() { if (pop) { pop.remove(); pop = null; } }
+  function closePop() { if (pop) { const p = pop; pop = null; p.classList.add('out'); setTimeout(() => p.remove(), 120); syncHold(); } }
   document.addEventListener('mousedown', (e) => { if (pop && !pop.contains(e.target)) closePop(); });
   function popup(anchor, items, cls = '') {
     closePop();
@@ -225,7 +359,7 @@
       m.onclick = () => { closePop(); it.run(); };
       pop.appendChild(m);
     }
-    document.body.appendChild(pop);
+    document.body.appendChild(pop); syncHold();
     const r = anchor.getBoundingClientRect(), pr = pop.getBoundingClientRect();
     const up = r.top > window.innerHeight / 2;
     pop.style.top = (up ? Math.max(4, r.top - pr.height - 6) : r.bottom + 6) + 'px';
@@ -348,7 +482,7 @@
     if (!pop || !pop.classList.contains('usage-pop')) {
       closePop();
       pop = el('div', 'popover usage-pop');
-      document.body.appendChild(pop);
+      document.body.appendChild(pop); syncHold();
       const r = $('#btn-usage').getBoundingClientRect();
       pop.style.top = `${r.bottom + 6}px`; pop.style.right = '8px'; pop.style.transformOrigin = 'top right';
     }
@@ -393,7 +527,11 @@
   };
   $('#btn-new').onclick = () => { if (busy) api.stop(); api.new_chat(); window.bot.clear(); input.focus(); };
   $('#btn-hide').onclick = () => api.hide();
-  $('#btn-pin').onclick = async (e) => { const on = await api.toggle_pin(); e.currentTarget.classList.toggle('active', on); toast(on ? '已置顶' : '已取消置顶'); };
+  function setPin(on) {
+    $('#btn-pin').classList.toggle('active', on);
+    $('#btn-pin').title = on ? '已固定（点一下改为自动收起）' : '自动收起：鼠标离开就滑到屏幕右边缘，碰一下边缘再出来（点一下固定）';
+  }
+  $('#btn-pin').onclick = async () => { const on = await api.toggle_pin(); setPin(on); toast(on ? '已固定，不会自动收起' : '自动收起：鼠标碰屏幕右边缘就出来'); };
 
   // ---------------- 启动 ----------------
   applyTheme();
@@ -401,7 +539,11 @@
     api = window.pywebview.api;
     state = await api.state();
     refreshPills();
-    $('#hotkey-hint').textContent = `随时按 ${state.hotkey.toUpperCase()} 呼出我。`;
+    $('#hotkey-hint').textContent = `${state.hotkey.toUpperCase()} 或鼠标碰屏幕右边缘呼出我`;
+    setPin(state.pinned);
+    welcomeIn();
+    loadSuggestions(false);
+    handlers.shown();
     if (state.update) handlers.update({ state: 'available', ...state.update });
     input.focus();
   });

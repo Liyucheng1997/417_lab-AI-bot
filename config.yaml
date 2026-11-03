@@ -21,6 +21,15 @@ cwd: ""
 # 面板宽度（像素）
 panel_width: 460
 
+# 停靠方式：auto —— 鼠标离开就滑到屏幕右边缘，碰一下右边缘再滑出来；pinned —— 一直显示（面板上的图钉按钮可切换）
+dock: auto
+
+# 欢迎页怎么称呼你（留空就只说「早上好」）
+nickname: ""
+
+# 欢迎页的快捷请求由 AI 根据你最近的对话和记忆来猜（Haiku，很省额度）；false = 用固定的几条
+smart_suggestions: true
+
 # 启动时自动检查新版本（也可以在面板设置里手动「检查更新」）
 check_updates: true
 

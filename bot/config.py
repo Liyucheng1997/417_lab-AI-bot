@@ -33,6 +33,9 @@ class Config:
     hotkey: str = "ctrl+alt+b"
     cwd: str = ""
     panel_width: int = 460
+    dock: str = "auto"
+    nickname: str = ""
+    smart_suggestions: bool = True
     load_user_settings: bool = True
     check_updates: bool = True
     api_credit: dict = field(default_factory=dict)

@@ -5,7 +5,7 @@
  */
 :root {
   /* 中性色 */
-  --bg: #f5f5f7;
+  --bg: #fbfbfd;
   --panel: #ffffff;
   --panel-2: #f5f5f7;
   --fill: #e8e8ed;
@@ -24,9 +24,15 @@
   --ink: #1d1d1f;
   --ink-text: #ffffff;
   /* 主题色：唯一 */
-  --primary: #0071e3;
-  --primary-hover: #0077ed;
-  --primary-soft: #e8f2fd;
+  --primary: #1d1d1f;          /* 主操作用墨黑，同 liyucheng.me 的标题 */
+  --primary-hover: #000000;
+  --primary-soft: rgba(255, 149, 0, 0.12);
+  --accent-color: #ff9500;     /* 今日燃烧色 */
+  --accent-text: #d97a00;      /* 橙色文字（白底上更清楚） */
+  --ring: rgba(255, 149, 0, 0.22);
+  --day: linear-gradient(90deg, #ffcc00, #ff9500, #ff3b30);  /* 网站时钟外圈 */
+  --glass: rgba(255, 255, 255, 0.62);
+  --glass-strong: rgba(255, 255, 255, 0.8);
   --accent: var(--primary);
   /* 状态色 */
   --success: #248a3d;
@@ -62,7 +68,7 @@
   color-scheme: light;
 }
 :root[data-theme='dark'] {
-  --bg: #000000;
+  --bg: #0b0b0c;
   --panel: #1c1c1e;
   --panel-2: #2c2c2e;
   --fill: #2c2c2e;
@@ -80,9 +86,14 @@
   --active: rgba(255, 255, 255, 0.1);
   --ink: #f5f5f7;
   --ink-text: #1d1d1f;
-  --primary: #0a84ff;
-  --primary-hover: #409cff;
-  --primary-soft: rgba(10, 132, 255, 0.16);
+  --primary: #f5f5f7;
+  --primary-hover: #ffffff;
+  --primary-soft: rgba(255, 159, 10, 0.16);
+  --accent-color: #ff9f0a;
+  --accent-text: #ffb340;
+  --ring: rgba(255, 159, 10, 0.26);
+  --glass: rgba(28, 28, 30, 0.62);
+  --glass-strong: rgba(44, 44, 46, 0.8);
   --success: #30d158;
   --success-bg: rgba(48, 209, 88, 0.14);
   --warning: #ff9f0a;
@@ -100,7 +111,7 @@
 html, body { margin: 0; height: 100%; overflow: hidden; }
 body { font-family: var(--font); font-size: 13px; letter-spacing: -0.01em; color: var(--text); background: var(--bg); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
 #app { height: 100%; display: flex; flex-direction: column; }
-::selection { background: rgba(0, 113, 227, 0.2); }
+::selection { background: var(--ring); }
 button { font: inherit; color: inherit; cursor: pointer; letter-spacing: inherit; }
 input, select, textarea { font: inherit; color: inherit; letter-spacing: inherit; }
 .ico { flex-shrink: 0; display: block; }
@@ -111,7 +122,7 @@ input, select, textarea { font: inherit; color: inherit; letter-spacing: inherit
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 18px; border: 0; background: var(--fill); color: var(--text); border-radius: 99px; font-weight: 500; transition: background 0.15s, transform 0.15s; }
 .btn:hover { background: var(--fill-hover); }
 .btn:active { transform: scale(0.97); }
-.btn-primary { background: var(--primary); color: #fff; }
+.btn-primary { background: var(--primary); color: var(--ink-text); }
 .btn-primary:hover { background: var(--primary-hover); }
 .btn-sm { height: 28px; padding: 0 12px; font-size: 12px; }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 0; background: transparent; border-radius: 50%; color: var(--text-2); transition: background 0.15s, color 0.15s, transform 0.15s; }
@@ -121,11 +132,11 @@ input, select, textarea { font: inherit; color: inherit; letter-spacing: inherit
 .input { height: 32px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--panel); outline: none; transition: border-color 0.15s, box-shadow 0.15s; }
 textarea.input { height: auto; padding: 8px 12px; resize: vertical; line-height: 1.6; }
 select.input { padding: 0 8px; }
-.input:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.15); }
+.input:focus { border-color: var(--primary); box-shadow: 0 0 0 4px var(--ring); }
 .chip { height: 30px; padding: 0 15px; border: 0; background: var(--fill); border-radius: 99px; color: var(--text-2); font-size: 12.5px; font-weight: 500; transition: background 0.15s, color 0.15s; }
 .chip:hover { color: var(--text); }
 .chip.active { background: var(--primary-soft); color: var(--primary); }
-input[type='checkbox'], input[type='radio'], input[type='range'] { accent-color: var(--primary); }
+input[type='checkbox'], input[type='radio'], input[type='range'] { accent-color: var(--accent-color); }
 
 /* 滚动条 */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -137,7 +148,7 @@ input[type='checkbox'], input[type='radio'], input[type='range'] { accent-color:
 .popover { position: fixed; z-index: 3000; background: var(--panel); border-radius: 14px; box-shadow: var(--shadow-pop); padding: 5px; max-height: calc(100vh - 8px); overflow: auto; transform-origin: top left; animation: popIn 0.18s ease-out; }
 .menu { min-width: 188px; }
 .menu-item { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px 0 6px; border-radius: 8px; cursor: default; white-space: nowrap; transition: background 0.1s; }
-.menu-item:hover { background: var(--primary); color: #fff; }
+.menu-item:hover { background: var(--primary); color: var(--ink-text); }
 .menu-item:hover .menu-icon, .menu-item:hover .menu-shortcut { color: rgba(255, 255, 255, 0.85); }
 .menu-item.disabled { opacity: 0.4; }
 .menu-item.disabled:hover { background: transparent; color: inherit; }

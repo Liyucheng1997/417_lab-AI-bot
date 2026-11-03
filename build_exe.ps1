@@ -10,8 +10,8 @@ New-Item -ItemType Directory -Force build | Out-Null
 
 # 图标 + exe 版本信息
 & $py -c @"
-from bot.app import make_icon
-make_icon(256).save('build/icon.ico', sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)])
+from bot.brand import save_ico
+save_ico('build/icon.ico')
 v = tuple(int(x) for x in '$version'.split('.')) + (0,)
 open('build/version.txt', 'w', encoding='utf-8').write(f'''VSVersionInfo(
   ffi=FixedFileInfo(filevers={v}, prodvers={v}),

@@ -18,8 +18,9 @@ from datetime import datetime
 from pathlib import Path
 
 from .tools import desktop  # 先导入：设置 DPI 感知
-from . import sop, updater, usage
+from . import dock, sop, suggest, updater, usage
 from .agent import BotSession
+from .brand import make_icon
 from . import __version__
 from .config import CONFIG_PATH, EFFORTS, FROZEN, MEMORY_PATH, MODELS, POLICIES, RES_DIR, ROOT, Config
 
@@ -28,7 +29,6 @@ import webview
 import win32api
 import win32con
 import win32gui
-from PIL import Image, ImageDraw, ImageFont
 
 TITLE = "我的 AI Bot"
 UI_DIR = RES_DIR / "bot" / "ui"
@@ -79,18 +79,6 @@ def hotkey_loop(spec: str, callback) -> None:
                 print("快捷键处理出错：", e)
 
 
-def make_icon(size: int = 64) -> Image.Image:
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    d.rounded_rectangle((0, 0, size - 1, size - 1), radius=size // 4, fill=(0, 113, 227, 255))
-    try:
-        font = ImageFont.truetype("seguisb.ttf", int(size * 0.62))
-    except OSError:
-        font = ImageFont.load_default()
-    d.text((size / 2, size / 2 + 1), "B", font=font, fill="white", anchor="mm")
-    return img
-
-
 class Api:
     """暴露给网页的方法（window.pywebview.api.xxx）。"""
 
@@ -103,7 +91,8 @@ class Api:
                 "policies": POLICIES, "effort": cfg.effort, "efforts": EFFORTS,
                 "hotkey": cfg.hotkey, "autostart": STARTUP_LINK.exists(),
                 "busy": self._app.bot.busy if self._app.bot else False,
-                "version": __version__, "update": self._app.update_info}
+                "version": __version__, "update": self._app.update_info,
+                "pinned": self._app.pinned, "nickname": cfg.nickname}
 
     def check_update(self):
         return self._app.check_update()
@@ -200,6 +189,12 @@ class Api:
     def toggle_pin(self):
         return self._app.toggle_pin()
 
+    def set_hold(self, on: bool):
+        self._app._hold = bool(on)
+
+    def suggestions(self, refresh: bool = False):
+        return self._app.suggestions(refresh)
+
 
 class BotApp:
     def __init__(self):
@@ -210,8 +205,13 @@ class BotApp:
         self.window: webview.Window | None = None
         self.hwnd = 0
         self.visible = True
-        self.pinned = True
-        self.auto_hidden = False
+        self.pinned = self.cfg.dock == "pinned"  # 固定显示；否则鼠标离开就自动收到屏幕边上
+        self.auto_hidden = False  # Bot 操作鼠标时临时收起的
+        self._armed = False       # 鼠标进过面板之后才会自动收起（快捷键呼出时不会马上缩回去）
+        self._hold = False        # 网页说先别收（菜单开着、输入框里有字）
+        self._win_lock = threading.Lock()
+        self._suggesting = False
+        self.edge: dock.EdgeHandle | None = None
         self._pending: dict[str, asyncio.Future] = {}
         self._events: queue.Queue = queue.Queue()
         self.tray: pystray.Icon | None = None
@@ -226,9 +226,12 @@ class BotApp:
 
     def emit(self, ev: dict) -> None:
         self._events.put(ev)
-        if ev["type"] == "status" and ev["state"] == "idle" and self.auto_hidden:
-            self.auto_hidden = False
-            self.show()
+        if ev["type"] == "status" and ev["state"] == "idle":
+            if self.auto_hidden:
+                self.auto_hidden = False
+                self.show_later()
+            elif not self.visible and self.edge:
+                self.edge.pulse()  # 收着的时候做完了：边缘把手呼吸几下
 
     def _pump(self) -> None:
         """把事件批量推给网页；合并连续的文字增量，避免卡顿。"""
@@ -254,7 +257,7 @@ class BotApp:
         self.emit(req)
         if not self.visible:
             self.auto_hidden = False
-            self.show()
+            self.show_later(activate=True)
         try:
             return await fut
         finally:
@@ -265,21 +268,19 @@ class BotApp:
         if fut and not fut.done():
             self.loop.call_soon_threadsafe(fut.set_result, decision)
 
-    # ------------------------------------------------------------ 窗口
-    def _place(self) -> None:
-        rect = ctypes.wintypes.RECT()
-        user32.SystemParametersInfoW(0x30, 0, ctypes.byref(rect), 0)  # SPI_GETWORKAREA（物理像素）
+    # ------------------------------------------------------------ 窗口（贴边停靠）
+    def _geometry(self) -> tuple[int, int, int, int]:
+        """面板展开时的位置和大小（物理像素）：贴着屏幕右侧，上下留边。"""
+        left, top, right, bottom = dock.work_area()
         scale = user32.GetDpiForWindow(self.hwnd) / 96 if self.hwnd else 1
         margin = int(12 * scale)
         w = int(self.cfg.panel_width * scale)
-        h = rect.bottom - rect.top - margin * 2
-        x = rect.right - w - margin
-        try:
-            self.window.on_top = self.pinned
-        except Exception:
-            pass
-        win32gui.SetWindowPos(self.hwnd, win32con.HWND_TOPMOST if self.pinned else win32con.HWND_NOTOPMOST,
-                              x, rect.top + margin, w, h, win32con.SWP_SHOWWINDOW)
+        return right - w - margin, top + margin, w, bottom - top - margin * 2
+
+    def _place(self, show: bool = False) -> None:
+        x, y, w, h = self._geometry()
+        flags = win32con.SWP_NOACTIVATE | (win32con.SWP_SHOWWINDOW if show else 0)
+        win32gui.SetWindowPos(self.hwnd, win32con.HWND_TOPMOST, x, y, w, h, flags)
 
     def _on_shown(self) -> None:
         for _ in range(50):
@@ -294,8 +295,11 @@ class BotApp:
         ctypes.windll.dwmapi.DwmSetWindowAttribute(self.hwnd, 33, ctypes.byref(pref), 4)
         if not os.environ.get("BOT_SHOW_IN_CAPTURE"):  # 调试截图时可设此变量让面板可见
             user32.SetWindowDisplayAffinity(self.hwnd, 0x11)
-        self._place()
+        self._place(show=True)
         threading.Thread(target=self._keep_on_top, daemon=True, name="on-top").start()
+        threading.Thread(target=self._dock_loop, daemon=True, name="dock").start()
+        # 启动时先露个面，鼠标不过来的话几秒后自己滑到边上
+        threading.Timer(3, lambda: setattr(self, "_armed", True)).start()
 
     def _keep_on_top(self) -> None:
         """WebView 的显示/隐藏有时会丢掉置顶状态，定时补回来。"""
@@ -303,16 +307,69 @@ class BotApp:
         while True:
             time.sleep(1.5)
             try:
-                if self.pinned and self.visible and not (
+                if self.visible and not (
                         win32gui.GetWindowLong(self.hwnd, win32con.GWL_EXSTYLE) & win32con.WS_EX_TOPMOST):
                     win32gui.SetWindowPos(self.hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0, flags)
             except Exception:
                 pass
 
+    def _dock_loop(self) -> None:
+        """每 40ms 看一次鼠标：碰到屏幕右边缘就滑出面板；离开面板一会儿就收起（固定模式除外）。"""
+        edge_since = out_since = 0.0
+        scale = user32.GetDpiForSystem() / 96
+        while True:
+            time.sleep(0.04)
+            try:
+                x, y = dock.cursor()
+                left, top, right, bottom = dock.work_area()
+                now = time.monotonic()
+                if self.visible and user32.IsIconic(self.hwnd):
+                    # 被 Windows 最小化了（任务栏按钮、Win+D）：当成收起，同时把窗口状态恢复正常
+                    with self._win_lock:
+                        self.visible = False
+                        user32.ShowWindow(self.hwnd, 0)
+                    threading.Thread(target=self.edge.show, daemon=True).start()
+                    continue
+                if not self.visible:
+                    mid = (top + bottom) / 2
+                    near = x >= right - 30 * scale and abs(y - mid) < 180 * scale
+                    self.edge.set_hot(near)
+                    # 碰到屏幕最右边，或者停在把手上
+                    at_edge = x >= right - 2 * scale or (near and x >= right - 12 * scale)
+                    if (at_edge and top <= y < bottom and not self.auto_hidden
+                            and not dock.mouse_down() and not dock.fullscreen_app()):
+                        edge_since = edge_since or now
+                        # Bot 自己在操作鼠标时要停留久一点才弹出，免得挡住它
+                        if now - edge_since >= (0.6 if self.bot and self.bot.busy else 0.12):
+                            edge_since = 0
+                            self.show(activate=False)
+                    else:
+                        edge_since = 0
+                    continue
+                l, t, r, b = win32gui.GetWindowRect(self.hwnd)
+                pad = int(8 * scale)
+                if (l - pad <= x <= r + pad and t - pad <= y <= b + pad) or x >= right - 2 * scale:
+                    self._armed, out_since = True, 0
+                    continue
+                if self.pinned or not self._armed or self._hold or self._pending or dock.mouse_down():
+                    out_since = 0
+                    continue
+                out_since = out_since or now
+                if now - out_since >= 0.7:
+                    out_since = 0
+                    self.hide()
+            except Exception as e:
+                print("停靠出错：", e)
+                time.sleep(1)
+
+    def _unminimize(self, x: int, y: int, w: int, h: int) -> None:
+        """被最小化过的窗口：直接恢复到屏幕外的起点（不激活），接着再滑进来。"""
+        _, _, pt_min, pt_max, _ = win32gui.GetWindowPlacement(self.hwnd)
+        win32gui.SetWindowPlacement(self.hwnd, (0, 4, pt_min, pt_max, (x, y, x + w, y + h)))  # SW_SHOWNOACTIVATE
+
     def _bring_front(self) -> None:
         if not self.hwnd:
             return
-        win32gui.ShowWindow(self.hwnd, win32con.SW_SHOW)
         win32api.keybd_event(win32con.VK_MENU, 0, 0, 0)  # 按一下 Alt，系统才允许抢前台
         win32api.keybd_event(win32con.VK_MENU, 0, win32con.KEYEVENTF_KEYUP, 0)
         try:
@@ -320,23 +377,49 @@ class BotApp:
         except Exception:
             pass
 
-    def show(self) -> None:
-        self.window.show()
-        self.visible = True
-        self._place()
-        self._bring_front()
-        self.window.evaluate_js("window.bot && bot.focusInput()")
+    def show(self, activate: bool = True) -> None:
+        """从屏幕右边滑进来（带一点回弹）。activate=False：鼠标碰边缘呼出时不抢键盘焦点。"""
+        with self._win_lock:
+            if not self.visible and self.hwnd:
+                x, y, w, h = self._geometry()
+                right = dock.work_area()[2]
+                if user32.IsIconic(self.hwnd):
+                    self._unminimize(right, y, w, h)
+                win32gui.SetWindowPos(self.hwnd, win32con.HWND_TOPMOST, right, y, w, h, win32con.SWP_NOACTIVATE)
+                user32.ShowWindow(self.hwnd, 5 if activate else 4)  # SW_SHOW / SW_SHOWNOACTIVATE
+                self.visible, self._armed = True, False
+                threading.Thread(target=self.edge.hide, daemon=True).start()
+                self.emit({"type": "shown"})
+                dock.slide(self.hwnd, right, x, y, 320, dock.ease_out_back)
+            elif self.hwnd:
+                self._place()
+        if activate:
+            self._bring_front()
+            self.emit({"type": "focus"})
 
-    def hide(self) -> None:
-        self.window.hide()
-        self.visible = False
+    def show_later(self, activate: bool = False) -> None:
+        threading.Thread(target=self.show, args=(activate,), daemon=True).start()
+
+    def hide(self, animate: bool = True) -> None:
+        """滑出屏幕右边，只留边缘的小把手。"""
+        with self._win_lock:
+            if not self.visible or not self.hwnd:
+                return
+            self.visible = False
+            if animate:
+                l, t, r, b = win32gui.GetWindowRect(self.hwnd)
+                dock.slide(self.hwnd, l, dock.work_area()[2] + 2, t, 180, dock.ease_in_cubic)
+            user32.ShowWindow(self.hwnd, 0)
+        self.emit({"type": "hidden"})  # 网页里暂停流体背景
+        threading.Thread(target=self.edge.show, daemon=True).start()
 
     def toggle(self) -> None:
         self.hide() if self.visible else self.show()
 
     def toggle_pin(self) -> bool:
         self.pinned = not self.pinned
-        self._place()
+        self._armed = True
+        self.cfg.save_keys(dock="pinned" if self.pinned else "auto")
         return self.pinned
 
     def _before_pointer(self, x: int, y: int) -> None:
@@ -346,16 +429,38 @@ class BotApp:
         l, t, r, b = win32gui.GetWindowRect(self.hwnd)
         if l <= x <= r and t <= y <= b:
             self.auto_hidden = True
-            self.hide()
-            time.sleep(0.25)
+            self.hide(animate=False)
+            time.sleep(0.15)
 
     def _on_closing(self):
-        self.hide()
+        threading.Thread(target=self.hide, daemon=True).start()
         return False  # 关闭按钮只是隐藏
+
+    # ------------------------------------------------------------ 猜你想做
+    def suggestions(self, refresh: bool = False) -> dict | None:
+        """先返回缓存；缓存旧了（或要求换一批）就在后台让 Haiku 重新猜，猜好了推给网页。"""
+        cached = suggest.load_cached()
+        stale = not cached or time.time() - cached.get("ts", 0) > 2 * 3600
+        if self.cfg.smart_suggestions and (refresh or stale) and not self._suggesting:
+            self._suggesting = True
+
+            def done(fut):
+                self._suggesting = False
+                try:
+                    self.emit({"type": "suggestions", **fut.result()})
+                except Exception as e:
+                    print("猜你想做失败：", e)
+                    self.emit({"type": "suggestions_failed"})
+            self.submit(suggest.generate(self.cfg)).add_done_callback(done)
+        return cached
 
     def on_sop_message(self, msg: dict) -> None:
         """截图工具栏的「AI」/ OCR 结果的「发给 AI」：叫出面板，把内容填进输入框，等主人补一句问题。"""
         print("SOP → Bot:", msg.get("cmd"))
+        if msg.get("cmd") == "show":  # 又双击了一次 exe / 开始菜单
+            self.auto_hidden = False
+            self.show()
+            return
         if msg.get("cmd") == "ask_image":
             text = f"请看这张截图：{msg['path']}\n"
         elif msg.get("cmd") == "ask_text":
@@ -475,7 +580,7 @@ class BotApp:
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("退出", lambda: self.quit()),
         )
-        self.tray = pystray.Icon("my-ai-bot", make_icon(), f"{TITLE} v{__version__}（{self.cfg.hotkey}）", menu)
+        self.tray = pystray.Icon("my-ai-bot", make_icon(32), f"{TITLE} v{__version__}（{self.cfg.hotkey}）", menu)
         self.tray.run_detached()
 
     def quit(self) -> None:
@@ -503,6 +608,7 @@ class BotApp:
             frameless=True, easy_drag=False, on_top=True, background_color="#f5f5f7", text_select=True,
         )
         self.window.events.closing += self._on_closing
+        self.edge = dock.EdgeHandle()
         self.window.events.shown += lambda: threading.Thread(target=self._on_shown, daemon=True).start()
         threading.Thread(target=self._pump, daemon=True, name="ui-pump").start()
         self.submit(self.bot.start())
@@ -520,10 +626,10 @@ def main() -> None:
     # 只允许运行一个实例；重复启动时把已有面板叫出来
     ctypes.windll.kernel32.CreateMutexW(None, False, "MyAIBot.SingleInstance")
     if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
-        hwnd = win32gui.FindWindow(None, TITLE)
-        if hwnd:
-            win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
-            win32gui.SetForegroundWindow(hwnd)
+        ipc = win32gui.FindWindow(None, sop.BOT_WINDOW)
+        if ipc:
+            user32.AllowSetForegroundWindow(0xFFFFFFFF)  # ASFW_ANY：让已运行的那个可以抢到前台
+            sop._send_copydata(ipc, json.dumps({"cmd": "show"}))
         return
     (ROOT / "data").mkdir(exist_ok=True)
     sys.stdout = sys.stderr = open(ROOT / "data" / "app.log", "a", encoding="utf-8", buffering=1)

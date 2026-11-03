@@ -219,7 +219,10 @@ class BotApp:
         self.auto_hidden = False  # Bot 操作鼠标时临时收起的
         self._armed = False       # 鼠标进过面板之后才会自动收起（快捷键呼出时不会马上缩回去）
         self._hold = False        # 网页说先别收（菜单开着、输入框里有字）
-        self._win_lock = threading.Lock()
+        self._winq: queue.Queue = queue.Queue()  # 显示 / 收起请求，全在 window-ops 线程里按顺序执行
+        self._win_thread = threading.Thread(target=self._run_window_ops, daemon=True, name="window-ops")
+        self._win_thread.start()
+        self._animating = False
         self._suggesting = False
         self._quitting = False
         self.edge: dock.EdgeHandle | None = None
@@ -327,7 +330,7 @@ class BotApp:
 
     def _dock_loop(self) -> None:
         """每 40ms 看一次鼠标：碰到屏幕右边缘就滑出面板；离开面板一会儿就收起（固定模式除外）。"""
-        edge_since = out_since = 0.0
+        edge_since = out_since = misplaced_since = 0.0
         scale = user32.GetDpiForSystem() / 96
         while True:
             time.sleep(0.04)
@@ -336,11 +339,9 @@ class BotApp:
                 left, top, right, bottom = dock.work_area()
                 now = time.monotonic()
                 if self.visible and user32.IsIconic(self.hwnd):
-                    # 被 Windows 最小化了（任务栏按钮、Win+D）：当成收起，同时把窗口状态恢复正常
-                    with self._win_lock:
-                        self.visible = False
-                        user32.ShowWindow(self.hwnd, 0)
-                    threading.Thread(target=self.edge.show, daemon=True).start()
+                    # 被 Windows 最小化了（任务栏按钮、Win+D）：当成收起
+                    self._window_op(self._minimized)
+                    time.sleep(0.2)
                     continue
                 if not self.visible:
                     mid = (top + bottom) / 2
@@ -359,6 +360,16 @@ class BotApp:
                         edge_since = 0
                     continue
                 l, t, r, b = win32gui.GetWindowRect(self.hwnd)
+                # 自愈：展开着却不在该在的位置（被打断的动画、分辨率 / 缩放变了）超过 1 秒就摆回去
+                gx, gy, gw, gh = self._geometry()
+                if not self._animating and (abs(l - gx) > 4 or abs(t - gy) > 4 or abs(r - l - gw) > 4):
+                    misplaced_since = misplaced_since or now
+                    if now - misplaced_since > 1.0:
+                        misplaced_since = 0
+                        print("面板位置不对，摆回停靠位置：", (l, t, r, b), "→", (gx, gy))
+                        self._window_op(self._place)
+                else:
+                    misplaced_since = 0
                 pad = int(8 * scale)
                 if (l - pad <= x <= r + pad and t - pad <= y <= b + pad) or x >= right - 2 * scale:
                     self._armed, out_since = True, 0
@@ -389,44 +400,83 @@ class BotApp:
         except Exception:
             pass
 
+    # 所有显示 / 收起都放到 window-ops 这一个线程里按顺序做；托盘、快捷键、网页按钮、停靠循环只往队列里放请求。
+    # 以前是各线程加锁后直接滑动窗口：跨线程移动窗口时，Windows 会让等待中的线程处理自己的消息，
+    # 托盘线程于是在同一线程里重入（再点一下托盘 → 收起），自己等自己的锁，面板卡在半路、再也叫不动。
+    def _run_window_ops(self) -> None:
+        while True:
+            fn, done = self._winq.get()
+            try:
+                fn()
+            except Exception as e:
+                print("窗口操作出错：", e)
+            finally:
+                self._animating = False
+                if done:
+                    done.set()
+
+    def _window_op(self, fn, wait: bool = False) -> None:
+        if threading.current_thread() is self._win_thread:
+            fn()
+            return
+        done = threading.Event() if wait else None
+        self._winq.put((fn, done))
+        if done:
+            done.wait(3)
+
     def show(self, activate: bool = True) -> None:
+        self._window_op(lambda: self._show(activate))
+
+    def show_later(self, activate: bool = False) -> None:
+        self.show(activate)
+
+    def hide(self, animate: bool = True, wait: bool = False) -> None:
+        self._window_op(lambda: self._hide(animate), wait)
+
+    def toggle(self) -> None:
+        self._window_op(lambda: self._hide() if self.visible else self._show(True))
+
+    def _show(self, activate: bool) -> None:
         """从屏幕右边滑进来（带一点回弹）。activate=False：鼠标碰边缘呼出时不抢键盘焦点。"""
-        with self._win_lock:
-            if not self.visible and self.hwnd:
-                x, y, w, h = self._geometry()
-                right = dock.work_area()[2]
-                if user32.IsIconic(self.hwnd):
-                    self._unminimize(right, y, w, h)
-                win32gui.SetWindowPos(self.hwnd, win32con.HWND_TOPMOST, right, y, w, h, win32con.SWP_NOACTIVATE)
-                user32.ShowWindow(self.hwnd, 5 if activate else 4)  # SW_SHOW / SW_SHOWNOACTIVATE
-                self.visible, self._armed = True, False
-                threading.Thread(target=self.edge.hide, daemon=True).start()
-                self.emit({"type": "shown"})
-                dock.slide(self.hwnd, right, x, y, 320, dock.ease_out_back)
-            elif self.hwnd:
-                self._place()
+        if not self.hwnd:
+            return
+        if not self.visible:
+            x, y, w, h = self._geometry()
+            right = dock.work_area()[2]
+            if user32.IsIconic(self.hwnd):
+                self._unminimize(right, y, w, h)
+            win32gui.SetWindowPos(self.hwnd, win32con.HWND_TOPMOST, right, y, w, h, win32con.SWP_NOACTIVATE)
+            user32.ShowWindow(self.hwnd, 5 if activate else 4)  # SW_SHOW / SW_SHOWNOACTIVATE
+            self.visible, self._armed, self._animating = True, False, True
+            threading.Thread(target=self.edge.hide, daemon=True).start()
+            self.emit({"type": "shown"})
+            dock.slide(self.hwnd, right, x, y, 320, dock.ease_out_back)
+            self._animating = False
+        self._place()  # 最后再精确摆一次（也顺便纠正任何偏移）
         if activate:
             self._bring_front()
             self.emit({"type": "focus"})
 
-    def show_later(self, activate: bool = False) -> None:
-        threading.Thread(target=self.show, args=(activate,), daemon=True).start()
-
-    def hide(self, animate: bool = True) -> None:
+    def _hide(self, animate: bool = True) -> None:
         """滑出屏幕右边，只留边缘的小把手。"""
-        with self._win_lock:
-            if not self.visible or not self.hwnd:
-                return
-            self.visible = False
-            if animate:
-                l, t, r, b = win32gui.GetWindowRect(self.hwnd)
-                dock.slide(self.hwnd, l, dock.work_area()[2] + 2, t, 180, dock.ease_in_cubic)
-            user32.ShowWindow(self.hwnd, 0)
-        self.emit({"type": "hidden"})  # 网页里暂停流体背景
+        if not self.visible or not self.hwnd:
+            return
+        self.visible = False
+        if animate:
+            self._animating = True
+            l, t, r, b = win32gui.GetWindowRect(self.hwnd)
+            dock.slide(self.hwnd, l, dock.work_area()[2] + 2, t, 180, dock.ease_in_cubic)
+            self._animating = False
+        user32.ShowWindow(self.hwnd, 0)
+        self.emit({"type": "hidden"})  # 网页里暂停流体背景、3D 形象
         threading.Thread(target=self.edge.show, daemon=True).start()
 
-    def toggle(self) -> None:
-        self.hide() if self.visible else self.show()
+    def _minimized(self) -> None:
+        if self.visible and user32.IsIconic(self.hwnd):
+            self.visible = False
+            user32.ShowWindow(self.hwnd, 0)
+            self.emit({"type": "hidden"})
+            threading.Thread(target=self.edge.show, daemon=True).start()
 
     def toggle_pin(self) -> bool:
         self.pinned = not self.pinned
@@ -449,7 +499,7 @@ class BotApp:
         l, t, r, b = win32gui.GetWindowRect(self.hwnd)
         if l <= x <= r and t <= y <= b:
             self.auto_hidden = True
-            self.hide(animate=False)
+            self.hide(animate=False, wait=True)
             time.sleep(0.15)
 
     def _on_closing(self):

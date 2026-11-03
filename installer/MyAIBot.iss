@@ -75,6 +75,8 @@ Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{ap
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
+; 换了图标后刷新 Windows 图标缓存，桌面 / 开始菜单快捷方式不再显示旧图标
+Filename: "{sys}\ie4uinit.exe"; Parameters: "-show"; Flags: runhidden waituntilterminated
 Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; Description: "启动 {#AppName}"; Flags: nowait postinstall skipifsilent
 ; 客户端内更新（静默）装完后自动重新启动
 Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; Flags: nowait; Check: IsUpdate

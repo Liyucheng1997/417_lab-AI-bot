@@ -221,6 +221,7 @@ class BotApp:
         self._hold = False        # 网页说先别收（菜单开着、输入框里有字）
         self._win_lock = threading.Lock()
         self._suggesting = False
+        self._quitting = False
         self.edge: dock.EdgeHandle | None = None
         self._pending: dict[str, asyncio.Future] = {}
         self._events: queue.Queue = queue.Queue()
@@ -452,8 +453,11 @@ class BotApp:
             time.sleep(0.15)
 
     def _on_closing(self):
-        threading.Thread(target=self.hide, daemon=True).start()
-        return False  # 关闭按钮只是隐藏
+        """任务栏右键「关闭窗口」/ Alt+F4：退出整个程序（和托盘的「退出」一样）。"""
+        if self._quitting:
+            return True
+        threading.Thread(target=self.quit, daemon=True).start()
+        return False  # 先取消这次关闭，quit() 收拾好后台再真正关窗口
 
     # ------------------------------------------------------------ 猜你想做
     def suggestions(self, refresh: bool = False) -> dict | None:
@@ -604,10 +608,13 @@ class BotApp:
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("退出", lambda: self.quit()),
         )
-        self.tray = pystray.Icon("my-ai-bot", make_icon(32), f"{TITLE} v{__version__}（{self.cfg.hotkey}）", menu)
+        self.tray = pystray.Icon("my-ai-bot", make_icon(64, face=True), f"{TITLE} v{__version__}（{self.cfg.hotkey}）", menu)
         self.tray.run_detached()
 
     def quit(self) -> None:
+        if self._quitting:
+            return
+        self._quitting = True
         try:
             self.submit(self.bot.stop()).result(timeout=5)
         except Exception:
@@ -644,7 +651,8 @@ class BotApp:
         self._tray()
         if FROZEN:
             threading.Thread(target=self._update_loop, daemon=True, name="update-check").start()
-        webview.start(debug="--debug" in sys.argv)
+        # 窗口 / 任务栏图标用多尺寸的 icon.ico（和 exe、托盘同一个形象），高 DPI 下也清楚
+        webview.start(debug="--debug" in sys.argv, icon=str(UI_DIR / "icon.ico"))
 
 
 def main() -> None:

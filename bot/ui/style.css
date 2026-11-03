@@ -17,6 +17,16 @@ body { font-size: 13.5px; }
 .actions { display: flex; gap: 2px; }
 .icon-btn.active { color: var(--primary); }
 
+/* 新版本提示条 */
+.update-bar { position: relative; overflow: hidden; display: flex; align-items: center; gap: 6px; margin: 0 12px 6px; padding: 8px 6px 8px 14px; background: var(--panel); border-radius: var(--r); box-shadow: var(--shadow-card); flex: none; animation: riseIn 0.3s var(--ease-out); }
+.update-bar[hidden] { display: none; }
+.update-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; font-size: 12.5px; }
+.update-text b { font-weight: 600; }
+.update-text small { color: var(--text-3); font-size: 11.5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.update-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; }
+.update-progress i { display: block; height: 100%; width: 0; background: var(--primary); transition: width 0.2s; }
+.update-bar.working #btn-update, .update-bar.working #btn-update-close { display: none; }
+
 /* ---------- 消息区 ---------- */
 main { flex: 1; overflow-y: auto; padding: 4px 14px 16px; scroll-behavior: smooth; }
 #welcome { display: flex; flex-direction: column; align-items: center; padding: 56px 8px 0; text-align: center; animation: riseIn 0.4s var(--ease-out); }

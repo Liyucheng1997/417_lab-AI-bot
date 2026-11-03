@@ -34,6 +34,7 @@ class Config:
     cwd: str = ""
     panel_width: int = 460
     load_user_settings: bool = True
+    check_updates: bool = True
     extra_mcp_servers: dict = field(default_factory=dict)
 
     @property

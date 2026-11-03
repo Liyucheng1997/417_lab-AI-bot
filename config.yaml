@@ -21,6 +21,9 @@ cwd: ""
 # 面板宽度（像素）
 panel_width: 460
 
+# 启动时自动检查新版本（也可以在面板设置里手动「检查更新」）
+check_updates: true
+
 # 是否加载你在 Claude Code 里配置的 MCP 服务器、技能和插件（~/.claude）
 load_user_settings: true
 

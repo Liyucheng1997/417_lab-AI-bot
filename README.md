@@ -20,18 +20,30 @@
 
 前提：Windows 10/11，已安装 [Claude Code](https://code.claude.com/docs/en/setup)，并在终端运行过 `claude` 登录订阅账号。
 
-**方式一：exe 绿色版（推荐）**
+**方式一：安装包（推荐）**
 
-1. 在 [Releases](../../releases) 下载 `MyAIBot-v1.0.0-win64.zip`，解压到任意文件夹（包含 OCR 引擎，无需装 Python）。
-2. 双击 **`MyAIBot.exe`**。配置 `config.yaml`、数据 `data\`、截图识字模块 `sop\` 都在 exe 旁边。
+1. 在 [Releases](../../releases) 下载 `MyAIBot-Setup-v<版本>.exe`，双击安装（不需要管理员权限，含 OCR 引擎，无需装 Python）。
+   默认装到 `D:\my softwares\My AI Bot`，开始菜单里有「我的 AI Bot」，在「设置 → 应用」里可以卸载。
+2. 配置 `config.yaml`、数据 `data\`、对话工作目录 `workspace\`、截图识字模块 `sop\` 都在安装目录里，更新时不会被覆盖。
+
+**更新**：Bot 启动 10 秒后会自动检查 GitHub Releases（之后每 6 小时一次，`config.yaml` 的 `check_updates` 可关），
+有新版本时面板顶部出现提示条，点「立即更新」即可：下载几十 MB 的更新包 → 静默安装 → 自动重启，不用重新安装。
+也可以在面板「设置 → 检查更新」或托盘菜单里手动检查。仓库是私有的，检查更新用本机 `gh` 的登录（`gh auth login`），
+或设置环境变量 `GITHUB_TOKEN`。
 
 **方式二：从源码运行**
 
 1. 双击 **`安装.bat`**（创建 `.venv` 并安装依赖）。截图识字模块需要：运行 `sop\build.ps1` 编译 `SOP.exe`，
-   并把 Release 压缩包里的 `sop\bin\engine` 文件夹拷到同样位置（OCR 引擎约 300MB，不放在仓库里）。
+   并把安装版目录（或 v1.0.0 Release 压缩包）里的 `sop\bin\engine` 文件夹拷到同样位置（OCR 引擎约 300MB，不放在仓库里）。
 2. 双击 **`启动 Bot.vbs`**。
 
-自己打包 exe：`powershell -ExecutionPolicy Bypass -File build_exe.ps1`，产物在 `dist\`。
+自己打包安装包（需要 [Inno Setup 6](https://jrsoftware.org/isinfo.php)，`choco install innosetup`）：
+`powershell -ExecutionPolicy Bypass -File build_exe.ps1`，产物 `dist\MyAIBot-Setup-v<版本>.exe`（完整安装包）
+和 `dist\MyAIBot-Update-v<版本>.exe`（更新包，不含 OCR 引擎）。
+
+发布新版本：改 `bot\__init__.py` 的 `__version__`，提交并推送，然后
+`powershell -ExecutionPolicy Bypass -File release.ps1 -Notes "改了什么"`（打包并用 `gh` 创建 Release），
+已安装的客户端就会提示更新。
 
 ## 使用
 
@@ -96,12 +108,14 @@ bot/
   permissions.py  风险分级规则
   tools/desktop.py 桌面操作工具（进程内 MCP 服务器 desktop）
   app.py          桌面面板：pywebview 窗口、托盘、全局快捷键
+  updater.py      检查 GitHub Releases、下载更新包、静默安装
   sop.py          启动 / 调用截图与识字模块（和 SOP.exe 之间用 WM_COPYDATA 通信）
   ui/             面板界面（苹果式简约设计语言）
   cli.py          终端版
 config.yaml       配置
 data/             日志、长期记忆（memory.md）
 workspace/        Bot 的默认工作目录；对话历史按此目录保存
+installer/        Inno Setup 安装包脚本（MyAIBot.iss）
 sop/              截图 / 贴图 / OCR / 快捷短语模块：src（C# 源码）、bin（SOP.exe、OCR 引擎、配置）
 ```
 

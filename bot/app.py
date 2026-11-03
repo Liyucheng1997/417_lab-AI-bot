@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .tools import desktop  # 先导入：设置 DPI 感知
-from . import sop
+from . import sop, updater
 from .agent import BotSession
 from . import __version__
 from .config import CONFIG_PATH, EFFORTS, FROZEN, MEMORY_PATH, MODELS, POLICIES, RES_DIR, ROOT, Config
@@ -102,7 +102,14 @@ class Api:
         return {"model": cfg.model, "models": MODELS, "policy": cfg.permission_policy,
                 "policies": POLICIES, "effort": cfg.effort, "efforts": EFFORTS,
                 "hotkey": cfg.hotkey, "autostart": STARTUP_LINK.exists(),
-                "busy": self._app.bot.busy if self._app.bot else False}
+                "busy": self._app.bot.busy if self._app.bot else False,
+                "version": __version__, "update": self._app.update_info}
+
+    def check_update(self):
+        return self._app.check_update()
+
+    def do_update(self):
+        self._app.start_update()
 
     def send(self, text: str):
         self._app.submit(self._app.bot.send(text))
@@ -187,6 +194,8 @@ class BotApp:
         self._pending: dict[str, asyncio.Future] = {}
         self._events: queue.Queue = queue.Queue()
         self.tray: pystray.Icon | None = None
+        self.update_info: dict | None = None  # 有新版本时：updater.check() 的结果
+        self._updating = False
 
     # ------------------------------------------------------------ 线程桥
     def submit(self, coro) -> Future:
@@ -334,6 +343,64 @@ class BotApp:
         self.show()
         self.window.evaluate_js(f"window.bot && bot.prefill({json.dumps(text, ensure_ascii=False)})")
 
+    # ------------------------------------------------------------ 更新
+    def check_update(self) -> dict:
+        info = updater.check()
+        print("检查更新：", {k: v for k, v in info.items() if k != "notes"})
+        if info["available"]:
+            self.update_info = info
+            self.emit({"type": "update", "state": "available", "version": info["version"],
+                       "notes": info["notes"], "size": info.get("size", 0)})
+            if self.tray:
+                self.tray.update_menu()
+        return info
+
+    def _update_loop(self) -> None:
+        """启动 10 秒后查一次，之后每 6 小时查一次。"""
+        time.sleep(10)
+        while self.cfg.check_updates and not self.update_info:
+            self.check_update()
+            time.sleep(6 * 3600)
+
+    def start_update(self) -> None:
+        """下载更新包 → 后台静默安装 → 退出；安装程序装完会重新启动 Bot。"""
+        if self._updating or not self.update_info:
+            return
+        self._updating = True
+
+        def run():
+            last = -1
+
+            def progress(done, total):
+                nonlocal last
+                pct = int(done * 100 / total) if total else 0
+                if pct != last:
+                    last = pct
+                    self.emit({"type": "update", "state": "downloading", "pct": pct})
+
+            try:
+                path = updater.download(self.update_info, progress)
+                self.emit({"type": "update", "state": "installing"})
+                updater.install(path)
+                time.sleep(1)
+                self.quit()
+            except Exception as e:
+                print("更新失败：", e)
+                self._updating = False
+                self.emit({"type": "update", "state": "error", "message": f"更新失败：{e}"})
+
+        threading.Thread(target=run, daemon=True, name="update").start()
+
+    def _tray_check_update(self) -> None:
+        def run():
+            info = self.check_update()
+            if info["available"]:
+                self.auto_hidden = False
+                self.show()
+            elif self.tray:
+                self.tray.notify(info.get("error") or f"已是最新版本 v{__version__}", TITLE)
+        threading.Thread(target=run, daemon=True).start()
+
     # ------------------------------------------------------------ 托盘
     def _sop_menu(self) -> pystray.Menu:
         """截图 / OCR / 快捷短语（sop/bin/SOP.exe）的菜单，热键显示读自它的 config.json。"""
@@ -363,6 +430,9 @@ class BotApp:
             pystray.MenuItem("截图与识字", self._sop_menu(), visible=sop.available()),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("打开配置文件", lambda: os.startfile(str(CONFIG_PATH))),
+            pystray.MenuItem(lambda _: f"更新到 v{self.update_info['version']}" if self.update_info else "",
+                             lambda: (self.show(), self.start_update()), visible=lambda _: bool(self.update_info)),
+            pystray.MenuItem(f"检查更新（当前 v{__version__}）", lambda: self._tray_check_update()),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("退出", lambda: self.quit()),
         )
@@ -377,12 +447,16 @@ class BotApp:
         sop.stop()
         if self.tray:
             self.tray.stop()
+        # 保险：窗口关了但进程卡在退出阶段时强制结束，否则更新安装程序会一直等它
+        threading.Timer(5, lambda: os._exit(0)).start()
         self.window.destroy()
 
     # ------------------------------------------------------------ 启动
     def run(self) -> None:
         if not FROZEN and not LAUNCHER.exists():  # exe 版双击 exe 即可
             write_launcher(LAUNCHER)
+        if FROZEN and STARTUP_LINK.exists() and STARTUP_LINK.read_text(encoding="utf-16") != launcher_script():
+            write_launcher(STARTUP_LINK)  # 开机自启指向当前这份程序（比如从源码版换成安装版）
         self.bot = BotSession(self.cfg, self.emit, self.ask_permission)
         desktop.before_pointer = self._before_pointer
         self.window = webview.create_window(
@@ -398,6 +472,8 @@ class BotApp:
         sop.listen(self.on_sop_message)
         sop.start()  # 截图 / OCR / 快捷短语，几百毫秒就绪，不等面板
         self._tray()
+        if FROZEN:
+            threading.Thread(target=self._update_loop, daemon=True, name="update-check").start()
         webview.start(debug="--debug" in sys.argv)
 
 
@@ -414,3 +490,5 @@ def main() -> None:
     sys.stdout = sys.stderr = open(ROOT / "data" / "app.log", "a", encoding="utf-8", buffering=1)
     print(f"\n==== 启动 v{__version__} {datetime.now():%Y-%m-%d %H:%M:%S} ====")
     BotApp().run()
+    print(f"==== 退出 {datetime.now():%H:%M:%S} ====")
+    os._exit(0)  # 窗口已关闭：不等残留的后台线程（托盘、SDK 子进程管道），立即结束进程

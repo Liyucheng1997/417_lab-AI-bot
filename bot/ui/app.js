@@ -143,6 +143,30 @@
     },
     error(ev) { endBot(); add(el('div', 'notice err', esc(ev.message))); },
     session() {},
+    update(ev) {
+      const bar = $('#update-bar'), title = bar.querySelector('b'), sub = bar.querySelector('small');
+      bar.hidden = false;
+      bar.classList.toggle('working', ev.state === 'downloading' || ev.state === 'installing');
+      bar.querySelector('.update-progress i').style.width = ev.state === 'downloading' ? `${ev.pct}%` : '0';
+      if (ev.state === 'available') {
+        title.textContent = `发现新版本 v${ev.version}`;
+        const notes = (ev.notes || '').replace(/[#*`>-]/g, ' ').replace(/\s+/g, ' ').trim();
+        sub.textContent = notes || `${ev.size ? Math.round(ev.size / 1048576) + ' MB · ' : ''}更新后自动重启，对话和设置都会保留`;
+        bar.title = ev.notes || '';
+        $('#btn-update').textContent = '立即更新';
+      } else if (ev.state === 'downloading') {
+        title.textContent = `正在下载更新 ${ev.pct}%`;
+        sub.textContent = '下载完会自动安装并重启';
+      } else if (ev.state === 'installing') {
+        title.textContent = '正在安装更新…';
+        sub.textContent = 'Bot 会暂时关闭，几秒后自动重新打开';
+      } else if (ev.state === 'error') {
+        title.textContent = '更新没有完成';
+        sub.textContent = ev.message;
+        bar.title = ev.message;
+        $('#btn-update').textContent = '重试';
+      }
+    },
   };
 
   const LABELS = {
@@ -249,9 +273,25 @@
       { label: '编辑长期记忆', run: () => api.open_path('memory') },
       { label: '打开配置文件', hint: '快捷键等', run: () => api.open_path('config') },
       { label: '打开程序文件夹', run: () => api.open_path('folder') },
+      '-',
+      { label: '检查更新', hint: `当前 v${state.version}`, run: checkUpdate },
     ], 'settings');
     pop.style.left = ''; pop.style.right = '8px';
   };
+
+  async function checkUpdate() {
+    toast('正在检查更新…');
+    const r = await api.check_update();
+    if (r.error) toast(r.error, 'error');
+    else if (!r.available) toast(`已是最新版本 v${r.current}`, 'success');
+    // 有新版本时 Python 会推 update 事件，显示提示条
+  }
+  $('#btn-update').onclick = () => {
+    if (busy) { toast('等当前任务做完再更新，或先点停止'); return; }
+    handlers.update({ state: 'downloading', pct: 0 });
+    api.do_update();
+  };
+  $('#btn-update-close').onclick = () => { $('#update-bar').hidden = true; };
 
   $('#btn-history').onclick = async (e) => {
     const anchor = e.currentTarget;
@@ -282,6 +322,7 @@
     state = await api.state();
     refreshPills();
     $('#hotkey-hint').textContent = `随时按 ${state.hotkey.toUpperCase()} 呼出我。`;
+    if (state.update) handlers.update({ state: 'available', ...state.update });
     input.focus();
   });
 })();

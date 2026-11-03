@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .tools import desktop  # 先导入：设置 DPI 感知
-from . import sop, updater
+from . import sop, updater, usage
 from .agent import BotSession
 from . import __version__
 from .config import CONFIG_PATH, EFFORTS, FROZEN, MEMORY_PATH, MODELS, POLICIES, RES_DIR, ROOT, Config
@@ -111,6 +111,27 @@ class Api:
     def do_update(self):
         self._app.start_update()
 
+    def usage(self, force: bool = False):
+        return self._app.read_usage(force)
+
+    def set_admin_key(self, key: str):
+        """先用这个密钥读一次 API 用量，读得到才保存。返回值里不含密钥。"""
+        key = key.strip()
+        info = usage.api_usage(key, credit=self._app.cfg.api_credit)
+        if "error" in info:
+            return {"ok": False, "error": info["error"]}
+        usage.set_admin_key(key)
+        self._app.usage_cache = None
+        return {"ok": True}
+
+    def clear_admin_key(self):
+        usage.clear_admin_key()
+        self._app.usage_cache = None
+
+    def open_url(self, which: str):
+        import webbrowser
+        webbrowser.open({"billing": usage.BILLING_URL, "usage": usage.USAGE_URL, "admin_keys": usage.ADMIN_KEYS_DOC}[which])
+
     def send(self, text: str):
         self._app.submit(self._app.bot.send(text))
 
@@ -196,6 +217,8 @@ class BotApp:
         self.tray: pystray.Icon | None = None
         self.update_info: dict | None = None  # 有新版本时：updater.check() 的结果
         self._updating = False
+        self.usage_cache: dict | None = None
+        self._usage_lock = threading.Lock()
 
     # ------------------------------------------------------------ 线程桥
     def submit(self, coro) -> Future:
@@ -342,6 +365,22 @@ class BotApp:
         self.auto_hidden = False
         self.show()
         self.window.evaluate_js(f"window.bot && bot.prefill({json.dumps(text, ensure_ascii=False)})")
+
+    # ------------------------------------------------------------ 用量
+    def read_usage(self, force: bool = False) -> dict:
+        """订阅额度 + API 用量，同时读；60 秒内重复打开用缓存。"""
+        with self._usage_lock:
+            if not force and self.usage_cache and time.time() - self.usage_cache["ts"] < 60:
+                return self.usage_cache
+            sub_future = self.submit(usage.subscription())
+            api = usage.api_usage(credit=self.cfg.api_credit)
+            try:
+                sub = sub_future.result(timeout=40)
+            except Exception as e:
+                sub = {"error": f"读取订阅用量失败：{e}"}
+            self.usage_cache = {"sub": sub, "api": api,
+                                "ts": time.time(), "time": datetime.now().strftime("%H:%M")}
+            return self.usage_cache
 
     # ------------------------------------------------------------ 更新
     def check_update(self) -> dict:

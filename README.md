@@ -58,6 +58,17 @@
 面板功能：历史对话（可恢复继续聊）、新对话、置顶开关、模型切换（Opus / Sonnet / Haiku）、
 权限策略、思考深度、深色模式、开机自启、编辑长期记忆。`Esc` 停止当前任务或收起面板。
 
+**用量**（标题栏的柱状图按钮）：
+
+- **Claude 订阅**：5 小时会话、本周额度的已用百分比和重置时间，和 Claude Code 的 `/usage` 一致
+  （后台执行 `/usage`，不调用模型、不耗额度）。
+- **API**：本月花费、近 7 天 token 用量和每日柱状图、缓存命中率，来自
+  [Usage and Cost Analytics API](https://platform.claude.com/docs/en/manage-claude/usage-cost-analytics-api)。
+  需要在 Console 创建 Admin API key（`sk-ant-admin01-…`，组织账号才有），在卡片里粘贴一次即可，
+  密钥只存在 Windows 凭据管理器（`MyAIBot/AnthropicAdminKey`），不写进配置文件。
+  公开 API 不提供预付费余额，卡片里的「余额与充值」会打开 Console 账单页。
+  `config.yaml` 的 `api_spend_limit` 可以设一个月度参考上限（比如 tier 上限 500），显示进度条。
+
 终端版（调试用）：
 
 ```bash

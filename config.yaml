@@ -24,6 +24,14 @@ panel_width: 460
 # 启动时自动检查新版本（也可以在面板设置里手动「检查更新」）
 check_updates: true
 
+# API 额度（赠送或预付的 credits）：用量面板按「额度 − 开始日期以来的花费」算剩余和到期天数；留空 = 不显示
+#   amount: 金额（美元）  start / end: 有效期（含首尾两天）
+# api_credit:
+#   amount: 100
+#   start: 2026-10-29
+#   end: 2026-12-02
+api_credit: {}
+
 # 是否加载你在 Claude Code 里配置的 MCP 服务器、技能和插件（~/.claude）
 load_user_settings: true
 

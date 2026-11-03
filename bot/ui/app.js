@@ -279,6 +279,86 @@
     pop.style.left = ''; pop.style.right = '8px';
   };
 
+  // ---------------- 用量：订阅额度 + API ----------------
+  const fmtTokens = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n));
+  const fmtUsd = (x) => `$${x.toFixed(2)}`;
+
+  function usageSub(sub) {
+    if (sub.error) return `<p class="usage-note">${esc(sub.error)}</p>`;
+    return sub.windows.map((w) => {
+      const level = w.pct >= 95 ? 'danger' : w.pct >= 80 ? 'warn' : '';
+      return `<div class="meter ${level}"><div class="meter-top"><span>${esc(w.label)}</span><b>${Math.round(w.pct)}%</b></div>
+        <div class="meter-bar"><i style="width:${Math.min(100, w.pct)}%"></i></div>
+        ${w.resets ? `<small>重置于 ${esc(w.resets)}</small>` : ''}</div>`;
+    }).join('');
+  }
+
+  function usageCredit(c) {
+    const pct = c.amount ? (c.used / c.amount) * 100 : 0;
+    const level = c.expired ? 'danger' : pct >= 90 || c.days_left <= 3 ? 'warn' : '';
+    const when = c.expired ? `已于 ${c.end}到期` : `${c.start} – ${c.end} · 还剩 ${c.days_left} 天到期`;
+    return `<div class="meter credit ${level}"><div class="meter-top"><span>赠送额度 剩余</span><b>${fmtUsd(c.remaining)}<small> / ${fmtUsd(c.amount)}</small></b></div>
+      <div class="meter-bar"><i style="width:${Math.min(100, pct)}%"></i></div>
+      <small>已用 ${fmtUsd(c.used)} · ${esc(when)}</small></div>`;
+  }
+
+  function usageApi(a) {
+    const keyForm = `<div class="key-row"><input type="password" id="admin-key" placeholder="sk-ant-admin01-…" autocomplete="off" spellcheck="false">
+      <button class="btn btn-primary btn-sm" id="admin-key-save">保存</button></div>
+      <p class="usage-note">用 Console 里创建的 Admin API key（需要组织账号），只保存在本机的 Windows 凭据管理器里。<a data-url="admin_keys">怎么创建？</a></p>`;
+    if (a.need_key) return `<p class="usage-note">填入 Admin API key 后显示本月花费、近 7 天 token 用量和缓存命中率。</p>${keyForm}`;
+    if (a.error) return `<p class="usage-note err">${esc(a.error)}</p>${a.auth ? keyForm : ''}`;
+    const max = Math.max(...a.daily, 1);
+    const bars = a.daily.map((v) => `<i style="height:${Math.max(v ? 8 : 2, Math.round((v / max) * 100))}%" title="${fmtTokens(v)}"></i>`).join('');
+    return `${a.credit ? usageCredit(a.credit) : ''}<div class="stats">
+        <div><small>本月花费</small><b>${fmtUsd(a.spend)}</b></div>
+        <div><small>近 7 天</small><b>${fmtTokens(a.tokens_7d)}</b><small>tokens</small></div>
+        <div><small>缓存命中</small><b>${a.cache_hit == null ? '—' : a.cache_hit + '%'}</b></div>
+      </div>
+      <div class="spark">${bars}</div>
+      <div class="usage-links"><a data-url="billing">余额与充值 ↗</a><a data-url="usage">用量明细 ↗</a><a id="admin-key-clear">移除密钥</a></div>`;
+  }
+
+  function renderUsage(u) {
+    pop.innerHTML = `<div class="usage-sec"><div class="usage-h">Claude 订阅<small>本机 Claude Code</small></div>${usageSub(u.sub)}</div>
+      <div class="usage-sec"><div class="usage-h">API<small>Claude Console</small></div>${usageApi(u.api)}</div>
+      <div class="usage-foot"><span>更新于 ${esc(u.time)}</span><a id="usage-refresh">刷新</a></div>`;
+    pop.querySelectorAll('[data-url]').forEach((a) => a.onclick = () => api.open_url(a.dataset.url));
+    const refresh = pop.querySelector('#usage-refresh');
+    refresh.onclick = () => openUsage(true);
+    const save = pop.querySelector('#admin-key-save');
+    if (save) {
+      const inp = pop.querySelector('#admin-key');
+      const submit = async () => {
+        if (!inp.value.trim()) return;
+        save.disabled = true; save.textContent = '验证中…';
+        const r = await api.set_admin_key(inp.value);
+        inp.value = '';
+        if (r.ok) { toast('已保存，正在读取 API 用量', 'success'); openUsage(true); }
+        else { toast(r.error, 'error'); save.disabled = false; save.textContent = '保存'; }
+      };
+      save.onclick = submit;
+      inp.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
+    }
+    const clear = pop.querySelector('#admin-key-clear');
+    if (clear) clear.onclick = async () => { await api.clear_admin_key(); toast('已移除 Admin API key'); openUsage(true); };
+  }
+
+  async function openUsage(force) {
+    if (!pop || !pop.classList.contains('usage-pop')) {
+      closePop();
+      pop = el('div', 'popover usage-pop');
+      document.body.appendChild(pop);
+      const r = $('#btn-usage').getBoundingClientRect();
+      pop.style.top = `${r.bottom + 6}px`; pop.style.right = '8px'; pop.style.transformOrigin = 'top right';
+    }
+    const mine = pop;
+    mine.innerHTML = '<div class="usage-loading">正在读取用量…</div>';
+    const u = await api.usage(!!force);
+    if (pop === mine) renderUsage(u);
+  }
+  $('#btn-usage').onclick = () => openUsage(false);
+
   async function checkUpdate() {
     toast('正在检查更新…');
     const r = await api.check_update();

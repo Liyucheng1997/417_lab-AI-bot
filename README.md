@@ -60,6 +60,10 @@
 欢迎页的「猜你想做」由 Haiku 根据你最近的对话、长期记忆和当前时间生成（缓存 2 小时，可点「换一批」，
 `config.yaml` 的 `smart_suggestions: false` 换回固定的几条）；`nickname` 设置问候语里怎么称呼你。
 
+欢迎页顶部是网站同款 3D 数字分身（头跟着鼠标转，Bot 工作时会东张西望）；背景鼠标划过会留下单色墨迹。
+「设置 → 墨迹颜色与形象大小」里可以换墨迹颜色（默认紫色）、调浓淡（0 = 关闭）、调 3D 形象大小，
+对应 `config.yaml` 的 `fluid_color` / `fluid_opacity` / `avatar_size`。
+
 面板功能：历史对话（可恢复继续聊）、新对话、固定 / 自动收起、模型切换（Opus / Sonnet / Haiku）、
 权限策略、思考深度、深色模式、开机自启、编辑长期记忆。`Esc` 停止当前任务或收起面板。
 
@@ -112,7 +116,7 @@ Bot 启动时会在后台一起启动 `sop\bin\SOP.exe`（C# 写的小程序，�
 另外：
 
 - 发消息、付款、对外发布等不可撤回的事，系统提示要求 Bot 先用文字征求你同意。
-- 面板对截图不可见（`WDA_EXCLUDEFROMCAPTURE`），Bot 不会看到或误点自己；
+- 面板平时可以正常截图；只有 Bot 自己截屏的那一瞬间临时对截图隐身（`WDA_EXCLUDEFROMCAPTURE`），Bot 不会看到或误点自己；
   它要点的位置被面板挡住时，面板会自动收起，任务结束再出现。
 - 紧急刹车：点面板的停止键，或把鼠标猛甩到屏幕**左上角**（pyautogui 失控保护）。
 
@@ -129,7 +133,9 @@ bot/
   suggest.py      欢迎页「猜你想做」
   updater.py      检查 GitHub Releases、下载更新包、静默安装
   sop.py          启动 / 调用截图与识字模块（和 SOP.exe 之间用 WM_COPYDATA 通信）
-  ui/             面板界面（同 liyucheng.me：流体背景 fluid.js、磨砂玻璃、#ff9500 点缀、按真实时间走的时钟 Logo）
+  ui/             面板界面（同 liyucheng.me：流体墨迹背景 fluid.js、磨砂玻璃、#ff9500 点缀）
+    avatar.js     欢迎页的 3D 数字分身（取自网站 avatar3d-doll.js，模型在 ui/avatar/）
+    vendor/three/ three.js r160（MIT），本地加载，不依赖网络
   cli.py          终端版
 config.yaml       配置
 data/             日志、长期记忆（memory.md）

@@ -41,6 +41,11 @@ check_updates: true
 #   end: 2026-12-02
 api_credit: {}
 
+# 外观（面板「设置 → 墨迹颜色与形象大小」里可以直接调）：背景墨迹颜色、浓淡（0 = 关闭）、3D 形象高度（像素）
+fluid_color: "#af52de"
+fluid_opacity: 0.8
+avatar_size: 180
+
 # 是否加载你在 Claude Code 里配置的 MCP 服务器、技能和插件（~/.claude）
 load_user_settings: true
 

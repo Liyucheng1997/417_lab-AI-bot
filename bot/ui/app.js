@@ -131,7 +131,7 @@
 
   function nearBottom() { return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120; }
   function toBottom(force) { if (force || nearBottom()) requestAnimationFrame(() => { scroller.scrollTop = scroller.scrollHeight; }); }
-  function add(node) { const stick = nearBottom(); $('#welcome').style.display = 'none'; msgs.appendChild(node); toBottom(stick); return node; }
+  function add(node) { const stick = nearBottom(); $('#welcome').style.display = 'none'; if (avatar) avatar.pause(); msgs.appendChild(node); toBottom(stick); return node; }
   function toast(text, kind = '') {
     const t = el('div', `toast ${kind ? 'toast-' + kind : ''}`, esc(text));
     $('#toast-host').appendChild(t);
@@ -143,7 +143,7 @@
     v.onclick = () => { v.remove(); syncHold(); }; document.body.appendChild(v); syncHold();
   }
 
-  function setBusy(b) { busy = b; app.classList.toggle('busy', b); $('#btn-send').title = b ? '停止' : '发送'; }
+  function setBusy(b) { busy = b; app.classList.toggle('busy', b); if (avatar) avatar.setBusy(b); $('#btn-send').title = b ? '停止' : '发送'; }
   function setStatus(s) {
     const map = { idle: '空闲', thinking: '工作中', connecting: '连接中', error: '出错' };
     const st = $('#status'); st.className = `status ${s}`; st.querySelector('span').textContent = map[s] || s;
@@ -226,8 +226,8 @@
     },
     error(ev) { hideTyping(); endBot(); add(el('div', 'notice err', esc(ev.message))); },
     session() {},
-    shown() { app.classList.remove('enter'); void app.offsetWidth; app.classList.add('enter'); if (window.fluid) fluid.resume(); },
-    hidden() { if (window.fluid) fluid.pause(); },
+    shown() { app.classList.remove('enter'); void app.offsetWidth; app.classList.add('enter'); if (window.fluid) fluid.resume(); if (avatar && $('#welcome').style.display !== 'none') avatar.resume(); },
+    hidden() { if (window.fluid) fluid.pause(); if (avatar) avatar.pause(); },
     focus() { input.focus(); },
     suggestions(ev) { renderSuggestions(ev, true); },
     suggestions_failed() { $('#btn-reshuffle').classList.remove('spinning'); if (!$('#suggest').children.length || $('#suggest .skeleton')) renderSuggestions(null, true); },
@@ -279,6 +279,7 @@
     clear() {
       msgs.innerHTML = ''; hideTyping(); endBot(); curSteps = null;
       $('#welcome').style.display = ''; welcomeIn(); loadSuggestions(false);
+      if (avatar) avatar.resume();
     },
   };
 
@@ -397,6 +398,7 @@
       ...state.efforts.map((x) => ({ label: { low: '快速', medium: '适中', high: '深入', xhigh: '很深入', max: '极致' }[x], hint: x, checked: x === state.effort, run: () => { state.effort = x; api.set_effort(x); toast('新对话生效'); } })),
       '-', { header: '外观' },
       ...Object.entries(THEMES).map(([k, v]) => ({ label: v, checked: k === theme, run: () => { try { localStorage.setItem('theme', k); } catch (e) {} applyTheme(); } })),
+      { label: '墨迹颜色与形象大小…', run: openLook },
       '-',
       { label: '开机自动启动', checked: state.autostart, run: async () => { state.autostart = await api.set_autostart(!state.autostart); toast(state.autostart ? '已开启开机自启' : '已关闭开机自启'); } },
       '-', { header: '截图与识字' },
@@ -533,6 +535,54 @@
   }
   $('#btn-pin').onclick = async () => { const on = await api.toggle_pin(); setPin(on); toast(on ? '已固定，不会自动收起' : '自动收起：鼠标碰屏幕右边缘就出来'); };
 
+  // ---------------- 3D 数字分身（同 liyucheng.me；加载失败就留着小时钟 Logo） ----------------
+  let avatar = null;
+  function applyLook(l) {
+    if (window.fluid) fluid.set({ color: l.fluid_color, opacity: l.fluid_opacity });
+    $('#avatar').style.setProperty('--avatar-size', `${l.avatar_size}px`);
+  }
+  async function loadAvatar() {
+    try {
+      const { initAvatar3D } = await import('./avatar.js');
+      avatar = await initAvatar3D($('#avatar'), {
+        modelUrl: 'avatar/avatar-kid.glb',
+        badge: { url: 'avatar/badge-unimore.png', size: 0.017, offset: [0.055, 0.085, 0.108] },
+      });
+      $('#avatar').classList.add('on');
+      avatar.setBusy(busy);
+      if ($('#welcome').style.display === 'none') avatar.pause();
+    } catch (e) { console.warn('3D 形象加载失败，用 Logo 代替', e); }
+  }
+
+  const SWATCHES = [['#af52de', '紫'], ['#007aff', '蓝'], ['#5ac8fa', '青'], ['#34c759', '绿'], ['#ff9500', '橙'], ['#ff2d55', '粉'], ['#1d1d1f', '墨']];
+  function openLook() {
+    closePop();
+    const l = state.look;
+    pop = el('div', 'popover look-pop');
+    pop.innerHTML = `<div class="look-h">墨迹颜色</div>
+      <div class="swatches">${SWATCHES.map(([c, n]) => `<button class="sw${c === l.fluid_color ? ' on' : ''}" data-c="${c}" title="${n}" style="--c:${c}"></button>`).join('')}
+        <label class="sw custom" title="自定义颜色"><input type="color" value="${l.fluid_color}"></label></div>
+      <div class="look-h">墨迹浓淡 <span id="op-v">${Math.round(l.fluid_opacity * 100)}%</span></div>
+      <input type="range" id="op" min="0" max="100" value="${Math.round(l.fluid_opacity * 100)}">
+      <div class="look-h">形象大小 <span id="sz-v">${l.avatar_size}px</span></div>
+      <input type="range" id="sz" min="80" max="360" step="10" value="${l.avatar_size}">
+      <p class="look-note">在面板空白处移动鼠标就能看到墨迹。透明度拉到 0 就关掉。</p>`;
+    document.body.appendChild(pop); syncHold();
+    const r = $('#btn-settings').getBoundingClientRect();
+    pop.style.top = `${r.bottom + 6}px`; pop.style.right = '8px'; pop.style.transformOrigin = 'top right';
+    let timer = 0;
+    const save = () => { applyLook(l); clearTimeout(timer); timer = setTimeout(() => api.set_look(l), 300); };
+    const pick = (c) => { l.fluid_color = c; pop.querySelectorAll('.sw').forEach((b) => b.classList.toggle('on', b.dataset.c === c)); save(); };
+    pop.querySelectorAll('.sw[data-c]').forEach((b) => b.onclick = () => pick(b.dataset.c));
+    pop.querySelector('input[type=color]').oninput = (e) => pick(e.target.value);
+    pop.querySelector('#op').oninput = (e) => { l.fluid_opacity = e.target.value / 100; pop.querySelector('#op-v').textContent = `${e.target.value}%`; save(); };
+    pop.querySelector('#sz').oninput = (e) => {
+      l.avatar_size = +e.target.value; pop.querySelector('#sz-v').textContent = `${e.target.value}px`;
+      if ($('#welcome').style.display === 'none') window.bot.clear();  // 在对话里调大小时回到欢迎页看效果
+      save();
+    };
+  }
+
   // ---------------- 启动 ----------------
   applyTheme();
   window.addEventListener('pywebviewready', async () => {
@@ -541,6 +591,8 @@
     refreshPills();
     $('#hotkey-hint').textContent = `${state.hotkey.toUpperCase()} 或鼠标碰屏幕右边缘呼出我`;
     setPin(state.pinned);
+    applyLook(state.look);
+    loadAvatar();
     welcomeIn();
     loadSuggestions(false);
     handlers.shown();

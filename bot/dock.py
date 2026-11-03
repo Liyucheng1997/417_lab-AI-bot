@@ -128,7 +128,6 @@ class EdgeHandle:
               | win32con.WS_EX_TOOLWINDOW | win32con.WS_EX_NOACTIVATE)
         self.hwnd = win32gui.CreateWindowEx(ex, wc.lpszClassName, "MyAIBotEdge", win32con.WS_POPUP,
                                             0, 0, 1, 1, 0, 0, wc.hInstance, None)
-        user32.SetWindowDisplayAffinity(self.hwnd, 0x11)  # Bot 截图时看不到它
         ready.set()
         win32gui.PumpMessages()
 

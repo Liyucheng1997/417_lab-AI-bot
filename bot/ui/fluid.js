@@ -2,10 +2,13 @@
  * 代码原样取自个人网站 liyucheng.me（F:\我的编程项目\268_我的个人网站\me.html 的 FLUID 模块），
  * 它参考 Pavel Dobryakov 的 WebGL-Fluid-Simulation（MIT）。
  * 面板收起时暂停（bot.onEvents 的 hidden / shown 事件），不在后台空跑 GPU。
+ * 和网站不同：墨迹是单色的（默认紫色），颜色和透明度在面板「设置 → 外观」里调（window.fluid.set）。
  */
 (() => {
 'use strict';
 if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+let MONO = [0.69, 0.32, 0.87];   /* #af52de 网站时钟里的紫 */
+const hexToRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
 const FLUID = (function(){
   const canvas = document.getElementById('fluid');
   const config = {
@@ -236,7 +239,9 @@ const FLUID = (function(){
     void main(){
       vec3 c = texture2D(uTexture, vUv).rgb;
       float a = max(c.r, max(c.g, c.b));
-      gl_FragColor = vec4(c, a);
+      /* 单色版：色相保持饱满（c/a），浓度当透明度并放大一些；深色墨也能看清 */
+      float k = clamp(a * 2.6, 0.0, 1.0);
+      gl_FragColor = vec4(c / max(a, 1e-4) * k, k);
     }`);
 
   /* ---------- 全屏四边形 ---------- */
@@ -319,6 +324,8 @@ const FLUID = (function(){
   resize();
 
   /* ---------- 指针 → 染料 ---------- */
+  /* 单色墨迹：MONO 是 0~1 的 RGB，由 window.fluid.set({color}) 设置 */
+  function mono(){ return MONO; }
   function hsv(h){
     h = (h % 360 + 360) % 360 / 60;
     const i = Math.floor(h), f = h - i, q = 1 - f;
@@ -352,7 +359,7 @@ const FLUID = (function(){
     for (let i = 0; i < 6; i++){
       const a = Math.random() * Math.PI * 2;
       const s = 400 + Math.random() * 700;
-      const c = hsv(pointer.hue + Math.random() * 90);
+      const c = mono();
       splat(x, y, Math.cos(a) * s, Math.sin(a) * s, [c[0] * 0.3, c[1] * 0.3, c[2] * 0.3]);
     }
   }, { passive: true });
@@ -445,7 +452,7 @@ const FLUID = (function(){
     resize();
     if (pointer.moved){
       pointer.moved = false;
-      const c = hsv(pointer.hue);
+      const c = mono();
       splat(pointer.x, pointer.y, pointer.dx, pointer.dy, [c[0] * 0.22, c[1] * 0.22, c[2] * 0.22]);
     }
     step(Math.min(dt, 0.0166));
@@ -466,7 +473,12 @@ function loop(now){
 }
 requestAnimationFrame(loop);
 addEventListener('resize', () => FLUID.resize());
+const canvasEl = document.getElementById('fluid');
 window.fluid = {
+  set({ color, opacity } = {}){
+    if (color) MONO = hexToRgb(color);
+    if (opacity != null) canvasEl.style.opacity = String(opacity);
+  },
   pause(){ running = false; },
   resume(){ if (!running){ running = true; last = performance.now(); requestAnimationFrame(loop); } },
 };

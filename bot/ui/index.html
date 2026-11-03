@@ -10,8 +10,8 @@
 <body>
 <canvas id="fluid" aria-hidden="true"></canvas>
 <div id="app">
-  <header class="titlebar pywebview-drag-region">
-    <div class="brand pywebview-drag-region">
+  <header class="titlebar">
+    <div class="brand">
       <span class="logo"></span>
       <span class="name">Bot</span>
       <span class="status" id="status"><i></i><span>连接中</span></span>
@@ -19,12 +19,6 @@
     <div class="actions">
       <button class="icon-btn" id="btn-usage" title="用量：订阅额度与 API">
         <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20V12M12 20V5M19 20v-9"/></svg>
-      </button>
-      <button class="icon-btn" id="btn-history" title="历史对话">
-        <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>
-      </button>
-      <button class="icon-btn" id="btn-new" title="新对话">
-        <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
       </button>
       <button class="icon-btn" id="btn-pin" title="固定面板（不自动收起）">
         <svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 3h6l-1 6 4 4v2H6v-2l4-4z"/></svg>
@@ -50,7 +44,7 @@
   <main id="scroll">
     <section id="welcome">
       <div class="hello">
-        <span class="logo big"></span>
+        <div class="avatar" id="avatar"><span class="logo big"></span></div>
         <p class="greet" id="greet"></p>
         <h1>有什么可以帮你？</h1>
       </div>
@@ -72,6 +66,9 @@
       <textarea id="input" rows="1" placeholder="让 Bot 帮你做点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
       <div class="row">
         <div class="pills">
+          <button class="tool-btn" id="btn-new" title="新对话"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>新对话</span></button>
+          <button class="tool-btn" id="btn-history" title="历史对话"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg></button>
+          <i class="pills-sep"></i>
           <button class="pill" id="pill-model"></button>
           <button class="pill" id="pill-policy"></button>
         </div>
@@ -84,6 +81,9 @@
   </footer>
 </div>
 <div id="toast-host" class="toast-host"></div>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three/build/three.module.js", "three/addons/": "./vendor/three/examples/jsm/" } }
+</script>
 <script src="fluid.js"></script>
 <script src="app.js"></script>
 </body>

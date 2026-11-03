@@ -92,7 +92,17 @@ class Api:
                 "hotkey": cfg.hotkey, "autostart": STARTUP_LINK.exists(),
                 "busy": self._app.bot.busy if self._app.bot else False,
                 "version": __version__, "update": self._app.update_info,
-                "pinned": self._app.pinned, "nickname": cfg.nickname}
+                "pinned": self._app.pinned, "nickname": cfg.nickname,
+                "look": {"fluid_color": cfg.fluid_color, "fluid_opacity": cfg.fluid_opacity,
+                         "avatar_size": cfg.avatar_size}}
+
+    def set_look(self, look: dict):
+        """背景墨迹颜色 / 浓淡、3D 形象大小（面板里拖滑块时调用）。"""
+        cfg = self._app.cfg
+        color = str(look.get("fluid_color", cfg.fluid_color))
+        cfg.save_keys(fluid_color=f'"{color}"', fluid_opacity=round(float(look.get("fluid_opacity", 0.8)), 2),
+                      avatar_size=int(look.get("avatar_size", 180)))
+        cfg.fluid_color = color  # 文件里带引号（# 开头的颜色在 YAML 里要引起来），内存里不带
 
     def check_update(self):
         return self._app.check_update()
@@ -293,8 +303,9 @@ class BotApp:
         # Win11 圆角；截图时不拍到面板自己（WDA_EXCLUDEFROMCAPTURE）
         pref = ctypes.c_int(2)
         ctypes.windll.dwmapi.DwmSetWindowAttribute(self.hwnd, 33, ctypes.byref(pref), 4)
-        if not os.environ.get("BOT_SHOW_IN_CAPTURE"):  # 调试截图时可设此变量让面板可见
-            user32.SetWindowDisplayAffinity(self.hwnd, 0x11)
+        # 加上最小化按钮样式：任务栏点一下 / Win+D 才能最小化（随后当作收起处理）
+        style = win32gui.GetWindowLong(self.hwnd, win32con.GWL_STYLE)
+        win32gui.SetWindowLong(self.hwnd, win32con.GWL_STYLE, style | win32con.WS_MINIMIZEBOX)
         self._place(show=True)
         threading.Thread(target=self._keep_on_top, daemon=True, name="on-top").start()
         threading.Thread(target=self._dock_loop, daemon=True, name="dock").start()
@@ -422,6 +433,14 @@ class BotApp:
         self.cfg.save_keys(dock="pinned" if self.pinned else "auto")
         return self.pinned
 
+    def _capture_guard(self, on: bool) -> None:
+        """面板平时能被截图（主人自己截图要用）；只有 Bot 自己截屏的那一下对截图隐身，免得看到、点到自己。"""
+        for hwnd in (self.hwnd, self.edge.hwnd if self.edge else 0):
+            if hwnd:
+                user32.SetWindowDisplayAffinity(hwnd, 0x11 if on else 0)  # WDA_EXCLUDEFROMCAPTURE / WDA_NONE
+        if on:
+            time.sleep(0.05)  # 等 DWM 下一帧生效
+
     def _before_pointer(self, x: int, y: int) -> None:
         """Bot 要点击的位置被面板挡住时，先把面板收起来，任务结束后自动恢复。"""
         if not (self.visible and self.hwnd):
@@ -457,6 +476,11 @@ class BotApp:
     def on_sop_message(self, msg: dict) -> None:
         """截图工具栏的「AI」/ OCR 结果的「发给 AI」：叫出面板，把内容填进输入框，等主人补一句问题。"""
         print("SOP → Bot:", msg.get("cmd"))
+        if msg.get("cmd") == "dump":  # 诊断用：把所有线程的调用栈写进日志
+            import traceback
+            for tid, frame in sys._current_frames().items():
+                print(f"--- thread {tid}\n" + "".join(traceback.format_stack(frame)))
+            return
         if msg.get("cmd") == "show":  # 又双击了一次 exe / 开始菜单
             self.auto_hidden = False
             self.show()
@@ -603,6 +627,7 @@ class BotApp:
             write_launcher(STARTUP_LINK)  # 开机自启指向当前这份程序（比如从源码版换成安装版）
         self.bot = BotSession(self.cfg, self.emit, self.ask_permission)
         desktop.before_pointer = self._before_pointer
+        desktop.capture_guard = self._capture_guard
         self.window = webview.create_window(
             TITLE, str(UI_DIR / "index.html"), js_api=Api(self), width=self.cfg.panel_width, height=800,
             frameless=True, easy_drag=False, on_top=True, background_color="#f5f5f7", text_select=True,
@@ -634,6 +659,8 @@ def main() -> None:
     (ROOT / "data").mkdir(exist_ok=True)
     sys.stdout = sys.stderr = open(ROOT / "data" / "app.log", "a", encoding="utf-8", buffering=1)
     print(f"\n==== 启动 v{__version__} {datetime.now():%Y-%m-%d %H:%M:%S} ====")
+    import logging  # pywebview 等库的报错也写进 app.log
+    logging.basicConfig(level=logging.WARNING, stream=sys.stdout, format="%(name)s %(levelname)s: %(message)s")
     BotApp().run()
     print(f"==== 退出 {datetime.now():%H:%M:%S} ====")
     os._exit(0)  # 窗口已关闭：不等残留的后台线程（托盘、SDK 子进程管道），立即结束进程

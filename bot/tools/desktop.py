@@ -49,6 +49,8 @@ shot = _ShotState()
 
 # 面板 App 注册的钩子：鼠标要点到面板所在区域时先把面板藏起来
 before_pointer: Callable[[int, int], None] | None = None
+# 面板 App 注册的钩子：Bot 自己截图时临时让面板对截图不可见（True=开始截图，False=截完）
+capture_guard: Callable[[bool], None] | None = None
 
 # inspect_window 最近一次列出的控件
 _elements: list[dict] = []
@@ -79,11 +81,23 @@ def _pointer(x: int, y: int) -> None:
 
 # ---------------------------------------------------------------- 截图
 
+def _guard(on: bool) -> None:
+    if capture_guard:
+        try:
+            capture_guard(on)
+        except Exception:
+            pass
+
+
 def _grab(monitor: int) -> tuple[str, str]:
     with mss.mss() as sct:
         mons = sct.monitors  # [0] 是所有屏幕拼起来的虚拟屏
         mon = mons[monitor] if 0 <= monitor < len(mons) else mons[1]
-        raw = sct.grab(mon)
+        _guard(True)
+        try:
+            raw = sct.grab(mon)
+        finally:
+            _guard(False)
         img = Image.frombytes("RGB", raw.size, raw.bgra, "raw", "BGRX")
     scale = max(img.width, img.height) / MAX_SHOT_EDGE
     scale = max(scale, 1.0)

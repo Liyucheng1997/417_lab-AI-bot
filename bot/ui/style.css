@@ -53,11 +53,15 @@ body { background: var(--bg); }
 .meter small { display: block; margin-top: 3px; font-size: 11px; color: var(--text-3); }
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
 .stats div { display: flex; flex-direction: column; gap: 1px; }
-.stats small { font-size: 11px; color: var(--text-3); }
+.stats small { font-size: 11px; line-height: 1.35; color: var(--text-3); }
 .stats b { font-size: 18px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-.spark { display: flex; align-items: flex-end; gap: 5px; height: 36px; margin: 8px 0 10px; }
-.spark i { flex: 1; border-radius: 3px 3px 1px 1px; background: linear-gradient(180deg, #ff9500, #ffcc00); opacity: 0.9; }
-.spark i:last-child { opacity: 1; }
+.usage-sub, .spark-h { display: flex; align-items: baseline; gap: 6px; font-size: 12px; color: var(--text-2); margin-bottom: 6px; }
+.spark-h small { font-size: 11px; color: var(--text-3); }
+.spark { display: flex; gap: 5px; margin: 0 0 10px; }
+.spark div { flex: 1; display: grid; grid-template-rows: 36px auto; gap: 3px; }
+.spark i { align-self: end; border-radius: 3px 3px 1px 1px; background: linear-gradient(180deg, #ff9500, #ffcc00); opacity: 0.9; }
+.spark div:last-child i { opacity: 1; }
+.spark small { font-size: 10px; text-align: center; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .usage-links, .usage-foot { display: flex; gap: 14px; font-size: 12px; }
 .usage-foot { justify-content: space-between; padding-top: 9px; color: var(--text-3); }
 .usage-pop a { color: var(--accent-text); cursor: pointer; text-decoration: none; }

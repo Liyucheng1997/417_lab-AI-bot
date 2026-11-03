@@ -122,19 +122,20 @@ def _credit(key: str, credit: dict, now: datetime) -> dict | None:
 
 
 def api_usage(key: str | None = None, credit: dict | None = None) -> dict:
-    """额度剩余、本月花费、近 7 天 token 数（按天）、缓存命中率。"""
+    """额度剩余，以及近 7 天（含今天）的花费、token 数（都按天）和缓存命中率。"""
     key = key or get_admin_key()
     if not key:
         return {"need_key": True}
     now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
-    month_start = now.replace(day=1, hour=0, minute=0)
     week_start = (now - timedelta(days=6)).replace(hour=0, minute=0)
+    # 按天分桶时结束时间会被向下取整到 0 点，传「明天 0 点」才包含今天
+    week_end = week_start + timedelta(days=7)
+    by_day = [("starting_at", _iso(week_start)), ("ending_at", _iso(week_end)),
+              ("time_bucket_width", "1d"), ("order_by", "time"), ("order", "asc"), ("limit", "31")]
     try:
-        spend = _cost(key, month_start, now)
+        cost = _get("cost", key, by_day)
         credit_info = _credit(key, credit, now) if credit else None
-        usage = _get("usage", key, [("starting_at", _iso(week_start)), ("ending_at", _iso(now)),
-                                    ("time_bucket_width", "1d"), ("order_by", "time"), ("order", "asc"),
-                                    ("limit", "31")])
+        usage = _get("usage", key, by_day)
     except urllib.error.HTTPError as e:
         if e.code in (401, 403):
             return {"error": "Admin API key 无效或没有权限（需要组织账号的 sk-ant-admin 密钥）", "auth": True}
@@ -144,14 +145,22 @@ def api_usage(key: str | None = None, credit: dict | None = None) -> dict:
 
     days: dict[str, int] = {}
     cached = fresh = 0
-    for row in usage.get("data", []):
+    for row in usage.get("data", []):  # 一天可能有多行，按日期合并
         u = row["usage"]
         day = row["starting_at"][:10]
         days[day] = days.get(day, 0) + u.get("total_tokens", 0)
         created = sum((u.get("cache_creation") or {}).values())
         cached += u.get("cache_read_input_tokens", 0)
         fresh += u.get("uncached_input_tokens", 0) + created
-    series = [days.get((week_start + timedelta(days=i)).strftime("%Y-%m-%d"), 0) for i in range(7)]
-    return {"spend": round(spend, 2), "tokens_7d": sum(series), "daily": series,
+    spent: dict[str, float] = {}
+    for row in cost.get("data", []):
+        day = row["starting_at"][:10]
+        spent[day] = spent.get(day, 0.0) + float(row["cost"]["amount"]) / 100
+    dates = [week_start + timedelta(days=i) for i in range(7)]
+    keys = [d.strftime("%Y-%m-%d") for d in dates]
+    return {"spend_7d": round(sum(spent.values()), 2), "tokens_7d": sum(days.values()),
+            "daily": [{"label": "今天" if i == 6 else f"{d.month}/{d.day}",
+                       "cost": round(spent.get(k, 0.0), 2), "tokens": days.get(k, 0)}
+                      for i, (d, k) in enumerate(zip(dates, keys))],
             "cache_hit": round(cached * 100 / (cached + fresh)) if cached + fresh else None,
-            "month": now.strftime("%Y-%m"), "credit": credit_info}
+            "credit": credit_info}

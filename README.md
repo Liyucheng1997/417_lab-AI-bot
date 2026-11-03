@@ -73,12 +73,11 @@
 
 - **Claude 订阅**：5 小时会话、本周额度的已用百分比和重置时间，和 Claude Code 的 `/usage` 一致
   （后台执行 `/usage`，不调用模型、不耗额度）。
-- **API**：本月花费、近 7 天 token 用量和每日柱状图、缓存命中率，来自
+- **API**：最近 7 天（含今天）花了多少钱、用了多少 token、缓存复用了多少，以及每天花费的柱状图，来自
   [Usage and Cost Analytics API](https://platform.claude.com/docs/en/manage-claude/usage-cost-analytics-api)。
   需要在 Console 创建 Admin API key（`sk-ant-admin01-…`，组织账号才有），在卡片里粘贴一次即可，
   密钥只存在 Windows 凭据管理器（`MyAIBot/AnthropicAdminKey`），不写进配置文件。
-  公开 API 不提供预付费余额，卡片里的「余额与充值」会打开 Console 账单页。
-  `config.yaml` 的 `api_spend_limit` 可以设一个月度参考上限（比如 tier 上限 500），显示进度条。
+  公开 API 不提供预付费余额，卡片里的「去官网充值」会打开 Console 账单页。
 
 终端版（调试用）：
 

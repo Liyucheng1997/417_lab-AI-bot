@@ -343,7 +343,8 @@
   };
 
   // ---------------- 用量：订阅额度 + API ----------------
-  const fmtTokens = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : String(n));
+  const trim = (x) => String(+x.toFixed(x >= 100 ? 0 : 1));
+  const fmtTokens = (n) => (n >= 1e8 ? `${trim(n / 1e8)} 亿` : n >= 1e4 ? `${trim(n / 1e4)} 万` : String(n));
   const fmtUsd = (x) => `$${x.toFixed(2)}`;
 
   function usageSub(sub) {
@@ -369,17 +370,19 @@
     const keyForm = `<div class="key-row"><input type="password" id="admin-key" placeholder="sk-ant-admin01-…" autocomplete="off" spellcheck="false">
       <button class="btn btn-primary btn-sm" id="admin-key-save">保存</button></div>
       <p class="usage-note">用 Console 里创建的 Admin API key（需要组织账号），只保存在本机的 Windows 凭据管理器里。<a data-url="admin_keys">怎么创建？</a></p>`;
-    if (a.need_key) return `<p class="usage-note">填入 Admin API key 后显示本月花费、近 7 天 token 用量和缓存命中率。</p>${keyForm}`;
+    if (a.need_key) return `<p class="usage-note">填入 Admin API key 后显示最近 7 天花了多少钱、用了多少。</p>${keyForm}`;
     if (a.error) return `<p class="usage-note err">${esc(a.error)}</p>${a.auth ? keyForm : ''}`;
-    const max = Math.max(...a.daily, 1);
-    const bars = a.daily.map((v) => `<i style="height:${Math.max(v ? 8 : 2, Math.round((v / max) * 100))}%" title="${fmtTokens(v)}"></i>`).join('');
-    return `${a.credit ? usageCredit(a.credit) : ''}<div class="stats">
-        <div><small>本月花费</small><b>${fmtUsd(a.spend)}</b></div>
-        <div><small>近 7 天</small><b>${fmtTokens(a.tokens_7d)}</b><small>tokens</small></div>
-        <div><small>缓存命中</small><b>${a.cache_hit == null ? '—' : a.cache_hit + '%'}</b></div>
+    const max = Math.max(...a.daily.map((d) => d.cost), 0.01);
+    const bars = a.daily.map((d) => `<div title="${esc(d.label)}：花了 ${fmtUsd(d.cost)}，用了 ${fmtTokens(d.tokens)} token">
+        <i style="height:${Math.max(d.cost ? 8 : 2, Math.round((d.cost / max) * 100))}%"></i><small>${esc(d.label)}</small></div>`).join('');
+    return `${a.credit ? usageCredit(a.credit) : ''}<div class="usage-sub">最近 7 天</div><div class="stats">
+        <div><small>花了</small><b>${fmtUsd(a.spend_7d)}</b><small>平均每天 ${fmtUsd(a.spend_7d / 7)}</small></div>
+        <div title="token 是 AI 计算字数的单位，1 个汉字大约算 1～2 个 token"><small>用了</small><b>${fmtTokens(a.tokens_7d)}</b><small>个 token</small></div>
+        <div title="重复发给 AI 的内容（比如同一段对话历史）会被缓存，再次读取只按约 1 折收费"><small>缓存复用</small><b>${a.cache_hit == null ? '—' : a.cache_hit + '%'}</b><small>这部分只收约 1 折</small></div>
       </div>
+      <div class="spark-h">每天花费<small>鼠标移到柱子上看详情</small></div>
       <div class="spark">${bars}</div>
-      <div class="usage-links"><a data-url="billing">余额与充值 ↗</a><a data-url="usage">用量明细 ↗</a><a id="admin-key-clear">移除密钥</a></div>`;
+      <div class="usage-links"><a data-url="billing">去官网充值 ↗</a><a data-url="usage">看详细账单 ↗</a><a id="admin-key-clear" title="删除保存在本机的 Admin API key，之后不再显示 API 用量">删除密钥</a></div>`;
   }
 
   function renderUsage(u) {

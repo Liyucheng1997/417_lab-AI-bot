@@ -14,6 +14,14 @@ permission_policy: smart
 # 呼出/隐藏面板的全局快捷键（ctrl+alt+space 已被 Claude 桌面版占用）
 hotkey: ctrl+alt+b
 
+# 文件搜索（标题栏的放大镜）：只索引文档、图片、视频、音乐、压缩包、快捷方式，不管系统和程序文件。
+#   search_hotkey：直接呼出搜索的快捷键（留空 = 不用快捷键）
+#   search_exclude：不想被搜到的文件夹，例如 ['D:\私人', 'E:\备份']
+#   search_extensions：额外要索引的扩展名，例如 ["py", "html"]
+search_hotkey: ctrl+alt+f
+search_exclude: []
+search_extensions: []
+
 # Bot 的工作目录（留空 = 项目里的 workspace 文件夹，对话历史也按这个目录保存；
 # Bot 依然可以访问整台电脑的文件）
 cwd: ""

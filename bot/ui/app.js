@@ -52,7 +52,8 @@
   // ---------------- 先别收起：菜单开着、输入框里有字时告诉 Python ----------------
   let held = false;
   function syncHold() {
-    const h = !!pop || !!document.querySelector('.viewer') || (document.activeElement === input && !!input.value.trim());
+    const typing = (el) => document.activeElement === el && !!el.value.trim();
+    const h = !!pop || !!document.querySelector('.viewer') || typing(input) || typing(sInput);
     if (h !== held && api) { held = h; api.set_hold(h); }
   }
 
@@ -155,7 +156,9 @@
     session() {},
     shown() { app.classList.remove('enter'); void app.offsetWidth; app.classList.add('enter'); if (window.fluid) fluid.resume(); if (avatar && $('#welcome').style.display !== 'none') avatar.resume(); },
     hidden() { if (window.fluid) fluid.pause(); if (avatar) avatar.pause(); },
-    focus() { input.focus(); },
+    focus() { if (S.open) sInput.focus(); else input.focus(); },
+    search_open() { openSearch(); },
+    index(ev) { S.index = ev; renderStatus(); if (S.open && ev.state === 'ready' && S.q) runSearch(true); },
     suggestions(ev) { renderSuggestions(ev, true); },
     suggestions_failed() { $('#btn-reshuffle').classList.remove('spinning'); if (!$('#suggest').children.length || $('#suggest .skeleton')) renderSuggestions(null, true); },
     update(ev) {
@@ -513,6 +516,207 @@
     };
   }
 
+  // ---------------- 文件搜索（替代 Everything：只搜文档、图片、视频、音乐、压缩包、软件） ----------------
+  const S = { open: false, q: '', cat: 'all', sort: 'smart', items: [], total: 0, more: false, sel: -1, gen: 0, loading: false, index: null };
+  const CATS = [['all', '全部'], ['doc', '文档'], ['image', '图片'], ['video', '视频'], ['audio', '音乐'], ['archive', '压缩包'], ['app', '应用'], ['folder', '文件夹']];
+  const SORTS = { smart: ['智能排序', '常用的、刚改过的、名字最像的排前面'], recent: ['最近修改', ''], name: ['名称', ''], size: ['大小', '大文件在前'] };
+  const sInput = $('#s-input'), sList = $('#s-list');
+  const iconCache = new Map();
+  let iconQueue = [], iconBusy = false, sTimer = 0;
+
+  function terms(q) {
+    return (q.match(/"[^"]+"|\S+/g) || []).map((t) => t.replace(/"/g, '').toLowerCase())
+      .filter((t) => t && !/^(ext:|!)/.test(t) && !/[*?\\/]/.test(t));
+  }
+  function highlight(name, ts) {
+    const low = name.toLowerCase(), marks = new Array(name.length).fill(false);
+    for (const t of ts) { let i = low.indexOf(t); while (i >= 0) { for (let k = i; k < i + t.length; k++) marks[k] = true; i = low.indexOf(t, i + t.length); } }
+    let out = '', on = false;
+    for (let i = 0; i < name.length; i++) {
+      if (marks[i] !== on) { out += marks[i] ? '<mark>' : '</mark>'; on = marks[i]; }
+      out += esc(name[i]);
+    }
+    return out + (on ? '</mark>' : '');
+  }
+  const fmtCount = (n) => (n >= 1e4 ? `${trim(n / 1e4)} 万` : n.toLocaleString());
+
+  function renderCats() {
+    $('#s-cats').innerHTML = CATS.map(([k, v]) => `<button class="s-cat${k === S.cat ? ' on' : ''}" data-k="${k}">${v}</button>`).join('');
+    $('#s-cats').querySelectorAll('.s-cat').forEach((b) => b.onclick = () => { S.cat = b.dataset.k; renderCats(); runSearch(true); sInput.focus(); });
+    $('#s-sort').textContent = SORTS[S.sort][0];
+  }
+
+  function renderStatus() {
+    const st = S.index; const box = $('#s-status');
+    if (!st) { box.textContent = ''; return; }
+    if (st.state === 'ready') box.textContent = `已索引 ${fmtCount(st.files)} 个文件 · 实时更新${st.built ? ` · ${st.built} 全盘核对` : ''}`;
+    else box.innerHTML = `<i class="spin"></i>${st.state === 'loading' ? '正在载入索引…' : `正在建立索引… 已找到 ${fmtCount(st.scanned || 0)} 个${st.files ? '（先搜旧的）' : ''}`}`;
+  }
+
+  function rowHtml(it, i) {
+    const ts = terms(S.q);
+    const cached = iconCache.get(it.path);
+    const thumb = it.cat === 'image' || it.cat === 'video';
+    const ico = cached ? `<img src="${cached}" alt="">` : `<span class="s-ext">${esc((it.ext || (it.cat === 'folder' ? '' : '?')).slice(0, 4))}</span>`;
+    const side = [it.time, it.size].filter(Boolean).map((x) => `<span>${esc(x)}</span>`).join('');
+    return `<div class="s-row${i === S.sel ? ' sel' : ''}" data-i="${i}">
+      <div class="s-ico${thumb ? ' thumb' : ''}">${it.cat === 'folder' && !cached ? '<span class="s-ext">📁</span>' : ico}</div>
+      <div class="s-main"><div class="s-name" title="${esc(it.path)}">${highlight(it.name, ts)}</div><div class="s-dir" title="${esc(it.dir_path)}">${esc(it.dir)}</div></div>
+      <div class="s-side">${side}</div>
+      <button class="s-act" title="打开所在文件夹（Ctrl+Enter）"><svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></button>
+    </div>`;
+  }
+
+  function renderList(r, append) {
+    if (!append) sList.scrollTop = 0;
+    if (!S.items.length) {
+      if (S.q) sList.innerHTML = `<div class="s-empty"><b>没有找到「${esc(S.q)}」</b>换个关键词，或者少打几个字试试。<br>只搜文档、图片、视频、音乐、压缩包和软件，<br>系统文件、程序文件和代码不在范围内。</div>`;
+      else sList.innerHTML = `<div class="s-empty"><b>输入文件名就能找</b>按你打开的习惯排序：常用的、刚改过的在前面。
+        <ul class="s-tips"><li><code>合同 2024</code> 多个词空格分开</li><li><code>*.pdf</code> <code>ext:docx;xlsx</code> 按类型</li>
+        <li><code>下载\\ 发票</code> 限定在某个文件夹里</li><li><code>!备份</code> 排除</li>
+        <li><code>↑↓</code> 选择 · <code>Enter</code> 打开 · <code>Ctrl+Enter</code> 打开位置 · <code>Tab</code> 切换类型</li></ul></div>`;
+      return;
+    }
+    const head = !S.q ? '<div class="s-head">最近打开</div>' : '';
+    const html = S.items.map(rowHtml).join('');
+    sList.innerHTML = head + html + (S.more ? '<div class="s-more">往下滚动加载更多</div>' : '');
+    queueIcons(S.items);
+  }
+
+  function setCount(r) {
+    const c = $('#s-count');
+    if (!S.q) c.textContent = r && r.items.length ? `最近打开的 ${r.items.length} 个` : '';
+    else c.textContent = `${S.total.toLocaleString()} 个结果${r && r.ms != null ? ` · ${r.ms} ms` : ''}`;
+  }
+
+  async function runSearch(reset) {
+    if (!api) return;
+    const gen = ++S.gen;
+    const offset = reset ? 0 : S.items.length;
+    S.loading = true;
+    const r = await api.search(S.q, S.cat, S.sort, offset);
+    S.loading = false;
+    if (gen !== S.gen) return;  // 已经又打了字
+    S.index = { state: r.state, files: r.files, scanned: r.scanned, built: r.built }; renderStatus();
+    if (reset) { S.items = r.items; S.sel = r.items.length ? 0 : -1; } else S.items = S.items.concat(r.items);
+    S.total = r.total; S.more = !!r.more;
+    renderList(r, !reset); setCount(r);
+  }
+
+  function queueIcons(items) {
+    for (const it of items) if (!iconCache.has(it.path) && !iconQueue.some((x) => x.path === it.path)) iconQueue.push({ path: it.path, cat: it.cat, ext: it.ext });
+    pumpIcons();
+  }
+  async function pumpIcons() {
+    if (iconBusy || !iconQueue.length || !api) return;
+    iconBusy = true;
+    const batch = iconQueue.splice(0, 24);
+    try {
+      const got = await api.search_icons(batch);
+      for (const it of batch) {
+        if (!(it.path in got)) { iconQueue.push(it); continue; }  // 这次没来得及，下次再要
+        iconCache.set(it.path, got[it.path] || '');
+        if (!got[it.path]) continue;
+        S.items.forEach((x, i) => {
+          if (x.path !== it.path) return;
+          const box = sList.querySelector(`.s-row[data-i="${i}"] .s-ico`);
+          if (box) box.innerHTML = `<img src="${got[it.path]}" alt="">`;
+        });
+      }
+      if (iconCache.size > 3000) iconCache.clear();
+    } catch (e) { console.warn(e); }
+    iconBusy = false;
+    if (iconQueue.length && S.open) setTimeout(pumpIcons, 0);
+  }
+
+  function select(i, scroll = true) {
+    if (!S.items.length) return;
+    S.sel = Math.max(0, Math.min(S.items.length - 1, i));
+    sList.querySelectorAll('.s-row.sel').forEach((r) => r.classList.remove('sel'));
+    const row = sList.querySelector(`.s-row[data-i="${S.sel}"]`);
+    if (row) { row.classList.add('sel'); if (scroll) row.scrollIntoView({ block: 'nearest' }); }
+    if (S.sel >= S.items.length - 5 && S.more && !S.loading) runSearch(false);
+  }
+
+  async function openItem(it, how = 'open') {
+    if (!it) return;
+    const r = how === 'reveal' ? await api.search_reveal(it.path, S.q) : await api.search_open(it.path, S.q);
+    if (r && !r.ok) toast(r.error, 'error');
+  }
+
+  function itemMenu(it, x, y) {
+    const anchor = { getBoundingClientRect: () => ({ left: x, right: x, top: y, bottom: y }) };
+    const isDir = it.cat === 'folder';
+    popup(anchor, [
+      { label: isDir ? '打开文件夹' : '打开', hint: 'Enter', run: () => openItem(it) },
+      { label: '打开所在位置', hint: 'Ctrl+Enter', run: () => openItem(it, 'reveal') },
+      '-',
+      ...(isDir ? [] : [{ label: '复制文件', hint: '可直接粘贴到微信、文件夹', run: async () => { await api.search_copy(it.path, 'file'); toast('已复制文件，可以粘贴了', 'success'); } }]),
+      { label: '复制路径', run: async () => { await api.search_copy(it.path, 'path'); toast('已复制路径', 'success'); } },
+      { label: '让 Bot 处理这个文件…', run: () => { closeSearch(); window.bot.prefill(`${isDir ? '文件夹' : '文件'}：${it.path}\n`); } },
+      '-',
+      { label: '属性', run: () => api.search_props(it.path) },
+    ]);
+  }
+
+  function openSearch() {
+    if (!S.open) {
+      S.open = true; app.classList.add('searching'); renderCats();
+      if (api) api.set_searching(true);
+      runSearch(true);
+    }
+    sInput.focus(); sInput.select(); syncHold();
+  }
+  function closeSearch() {
+    S.open = false; app.classList.remove('searching');
+    if (api) api.set_searching(false);
+    syncHold(); input.focus();
+  }
+
+  $('#btn-search').onclick = () => (S.open ? closeSearch() : openSearch());
+  sInput.addEventListener('input', () => {
+    S.q = sInput.value.trim(); $('#s-clear').hidden = !sInput.value;
+    clearTimeout(sTimer); sTimer = setTimeout(() => runSearch(true), S.q.length === 1 ? 220 : 90);
+    syncHold();
+  });
+  sInput.addEventListener('focus', syncHold);
+  sInput.addEventListener('blur', syncHold);
+  $('#s-clear').onclick = () => { sInput.value = ''; S.q = ''; $('#s-clear').hidden = true; runSearch(true); sInput.focus(); };
+  sInput.addEventListener('keydown', (e) => {
+    if (e.isComposing) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); select(S.sel + 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); select(S.sel - 1); }
+    else if (e.key === 'PageDown') { e.preventDefault(); select(S.sel + 8); }
+    else if (e.key === 'PageUp') { e.preventDefault(); select(S.sel - 8); }
+    else if (e.key === 'Enter') { e.preventDefault(); openItem(S.items[Math.max(0, S.sel)], e.ctrlKey ? 'reveal' : 'open'); }
+    else if (e.key === 'Tab') {
+      e.preventDefault();
+      const i = CATS.findIndex(([k]) => k === S.cat);
+      S.cat = CATS[(i + (e.shiftKey ? CATS.length - 1 : 1)) % CATS.length][0]; renderCats(); runSearch(true);
+    } else if (e.key === 'Escape') {
+      e.preventDefault(); e.stopPropagation();
+      if (sInput.value) $('#s-clear').onclick(); else closeSearch();
+    }
+  });
+  sList.addEventListener('click', (e) => {
+    const row = e.target.closest('.s-row'); if (!row) return;
+    const i = +row.dataset.i;
+    if (e.target.closest('.s-act')) { openItem(S.items[i], 'reveal'); return; }
+    select(i, false);
+  });
+  sList.addEventListener('dblclick', (e) => { const row = e.target.closest('.s-row'); if (row && !e.target.closest('.s-act')) openItem(S.items[+row.dataset.i]); });
+  sList.addEventListener('contextmenu', (e) => {
+    const row = e.target.closest('.s-row'); if (!row) return;
+    e.preventDefault(); select(+row.dataset.i, false); itemMenu(S.items[+row.dataset.i], e.clientX, e.clientY);
+  });
+  sList.addEventListener('scroll', () => { if (S.more && !S.loading && sList.scrollTop + sList.clientHeight > sList.scrollHeight - 200) runSearch(false); });
+  $('#search').addEventListener('keydown', (e) => { if (e.key === 'Escape' && e.target !== sInput) { e.preventDefault(); closeSearch(); } });
+  $('#s-sort').onclick = (e) => popup(e.currentTarget, Object.entries(SORTS).map(([k, [name, hint]]) => ({
+    html: `<span class="menu-label">${esc(name)}${hint ? `<small>${esc(hint)}</small>` : ''}</span>`, checked: k === S.sort,
+    run: () => { S.sort = k; renderCats(); runSearch(true); sInput.focus(); },
+  })));
+  $('#s-rebuild').onclick = async () => { await api.search_rebuild(); toast('开始重新扫描，大约半分钟，期间照常可以搜'); S.index = { ...(S.index || {}), state: 'scanning', scanned: 0 }; renderStatus(); };
+
   // ---------------- 启动 ----------------
   applyTheme();
   window.addEventListener('pywebviewready', async () => {
@@ -527,6 +731,8 @@
     loadSuggestions(false);
     handlers.shown();
     if (state.update) handlers.update({ state: 'available', ...state.update });
+    $('#btn-search').title = `搜索文件${state.search_hotkey ? `（${state.search_hotkey.toUpperCase()}）` : ''}`;
+    S.index = await api.search_status();
     input.focus();
   });
 })();

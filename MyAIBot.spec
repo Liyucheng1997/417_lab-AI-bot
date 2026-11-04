@@ -8,7 +8,8 @@ datas += collect_data_files("webview")
 hiddenimports = (
     collect_submodules("claude_agent_sdk")
     + collect_submodules("webview.platforms")
-    + ["pystray._win32", "clr", "win32timezone", "win32cred", "comtypes.stream"]
+    + ["pystray._win32", "clr", "win32timezone", "win32cred", "comtypes.stream",
+       "win32file", "win32clipboard", "win32com.shell", "win32com.shell.shellcon"]
 )
 
 a = Analysis(

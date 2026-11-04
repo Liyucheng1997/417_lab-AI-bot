@@ -18,7 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .tools import desktop  # 先导入：设置 DPI 感知
-from . import dock, sop, suggest, updater, usage
+from . import dock, fileindex, shellicon, sop, suggest, updater, usage
 from .agent import BotSession
 from .brand import make_icon
 from . import __version__
@@ -89,7 +89,7 @@ class Api:
         cfg = self._app.cfg
         return {"model": cfg.model, "models": MODELS, "policy": cfg.permission_policy,
                 "policies": POLICIES, "effort": cfg.effort, "efforts": EFFORTS,
-                "hotkey": cfg.hotkey, "autostart": STARTUP_LINK.exists(),
+                "hotkey": cfg.hotkey, "search_hotkey": cfg.search_hotkey, "autostart": STARTUP_LINK.exists(),
                 "busy": self._app.bot.busy if self._app.bot else False,
                 "version": __version__, "update": self._app.update_info,
                 "pinned": self._app.pinned, "nickname": cfg.nickname,
@@ -202,8 +202,68 @@ class Api:
     def set_hold(self, on: bool):
         self._app._hold = bool(on)
 
+    def set_searching(self, on: bool):
+        self._app._searching = bool(on)
+
     def suggestions(self, refresh: bool = False):
         return self._app.suggestions(refresh)
+
+    # ---------------- 文件搜索
+    def search(self, query: str, cat: str = "all", sort: str = "smart", offset: int = 0):
+        return self._app.files.search(query, cat, sort, int(offset))
+
+    def search_icons(self, items: list):
+        return shellicon.icons(items)
+
+    def search_status(self):
+        return self._app.files.status()
+
+    def search_rebuild(self):
+        self._app.files.rebuild()
+
+    def search_open(self, path: str, query: str = ""):
+        """打开文件；没固定面板的话顺手收起来，把位置让给打开的软件。"""
+        try:
+            os.startfile(path)
+        except OSError as e:
+            return {"ok": False, "error": f"打不开：{e.strerror or e}"}
+        self._app.files.record_open(path, query)
+        if not self._app.pinned:
+            self._app.hide()
+        return {"ok": True}
+
+    def search_reveal(self, path: str, query: str = ""):
+        """在资源管理器里打开所在文件夹并选中它。"""
+        import subprocess
+        if not os.path.exists(path):
+            return {"ok": False, "error": "文件已经不在了"}
+        subprocess.Popen(f'explorer /select,"{path}"')
+        self._app.files.record_open(path, query, 0.5)
+        if not self._app.pinned:
+            self._app.hide()
+        return {"ok": True}
+
+    def search_copy(self, path: str, kind: str = "path"):
+        """复制路径（文字），或复制文件本身（可以直接粘贴到微信、资源管理器）。"""
+        import struct
+        import win32clipboard
+        win32clipboard.OpenClipboard()
+        try:
+            win32clipboard.EmptyClipboard()
+            if kind == "file":
+                files = (path + chr(0) * 2).encode("utf-16-le")
+                win32clipboard.SetClipboardData(win32clipboard.CF_HDROP, struct.pack("IiiII", 20, 0, 0, 0, 1) + files)
+                effect = win32clipboard.RegisterClipboardFormat("Preferred DropEffect")
+                win32clipboard.SetClipboardData(effect, struct.pack("I", 1))  # DROPEFFECT_COPY
+            else:
+                win32clipboard.SetClipboardText(path, win32clipboard.CF_UNICODETEXT)
+        finally:
+            win32clipboard.CloseClipboard()
+
+    def search_props(self, path: str):
+        """系统的「属性」对话框。"""
+        from win32com.shell import shell, shellcon
+        shell.ShellExecuteEx(fMask=shellcon.SEE_MASK_INVOKEIDLIST, lpVerb="properties", lpFile=path, nShow=1)
 
 
 class BotApp:
@@ -223,6 +283,7 @@ class BotApp:
         self._win_thread = threading.Thread(target=self._run_window_ops, daemon=True, name="window-ops")
         self._win_thread.start()
         self._animating = False
+        self._searching = False   # 网页里文件搜索开着
         self._suggesting = False
         self._quitting = False
         self.edge: dock.EdgeHandle | None = None
@@ -233,6 +294,8 @@ class BotApp:
         self._updating = False
         self.usage_cache: dict | None = None
         self._usage_lock = threading.Lock()
+        self.files = fileindex.FileSearch(self.emit, self.cfg.search_exclude, self.cfg.search_extensions)
+        fileindex.instance = self.files  # 给 Bot 的 find_files 工具用
 
     # ------------------------------------------------------------ 线程桥
     def submit(self, coro) -> Future:
@@ -435,6 +498,17 @@ class BotApp:
 
     def toggle(self) -> None:
         self._window_op(lambda: self._hide() if self.visible else self._show(True))
+
+    def open_search(self) -> None:
+        """搜索快捷键：叫出面板并打开文件搜索；已经在搜索就收起。"""
+        def run():
+            if self.visible and self._searching:
+                self._hide()
+                return
+            self.auto_hidden = False
+            self._show(True)
+            self.emit({"type": "search_open"})
+        self._window_op(run)
 
     def _show(self, activate: bool) -> None:
         """从屏幕右边滑进来（带一点回弹）。activate=False：鼠标碰边缘呼出时不抢键盘焦点。"""
@@ -696,6 +770,10 @@ class BotApp:
         self.submit(self.bot.start())
         threading.Thread(target=hotkey_loop, args=(self.cfg.hotkey, self.toggle), daemon=True,
                          name="hotkey").start()
+        if self.cfg.search_hotkey:
+            threading.Thread(target=hotkey_loop, args=(self.cfg.search_hotkey, self.open_search), daemon=True,
+                             name="search-hotkey").start()
+        self.files.start()
         sop.listen(self.on_sop_message)
         sop.start()  # 截图 / OCR / 快捷短语，几百毫秒就绪，不等面板
         self._tray()

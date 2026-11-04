@@ -64,6 +64,8 @@ SYSTEM_PROMPT = """
 # 你能做什么
 - 命令行：用 PowerShell / Bash 工具运行命令、脚本，管理文件，调用电脑上安装的任何命令行软件。
 - 文件：用 Read / Write / Edit / Glob / Grep 读写搜索文件。
+  找主人的文档、照片、视频、音乐、安装包、软件快捷方式时，先用 mcp__desktop__find_files（整机索引，毫秒出结果，按主人习惯排序）；
+  代码文件、系统文件不在索引里，用 Glob。
 - 上网：WebSearch / WebFetch。
 - 操作图形界面（mcp__desktop__* 工具）：
   - screenshot 看屏幕；inspect_window 读取窗口控件（比看图找坐标更准）；

@@ -17,6 +17,9 @@
       <span class="status" id="status"><i></i><span>连接中</span></span>
     </div>
     <div class="actions">
+      <button class="icon-btn" id="btn-search" title="搜索文件">
+        <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>
+      </button>
       <button class="icon-btn" id="btn-usage" title="用量：订阅额度与 API">
         <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20V12M12 20V5M19 20v-9"/></svg>
       </button>
@@ -40,6 +43,20 @@
     </button>
     <div class="update-progress"><i></i></div>
   </div>
+
+  <section id="search" class="search" aria-label="搜索文件">
+    <div class="s-bar">
+      <svg class="ico s-glass" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>
+      <input id="s-input" type="text" placeholder="搜索文档、图片、视频、音乐、软件…" spellcheck="false" autocomplete="off">
+      <button class="s-clear" id="s-clear" title="清空" hidden>
+        <svg class="ico" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="s-cats" id="s-cats"></div>
+    <div class="s-meta"><span id="s-count"></span><button class="s-sort" id="s-sort"></button></div>
+    <div class="s-list" id="s-list" tabindex="-1"></div>
+    <div class="s-foot"><span id="s-status"></span><a id="s-rebuild" title="重新扫描所有磁盘（平时会自动实时更新，一般不需要）">重建索引</a></div>
+  </section>
 
   <main id="scroll">
     <section id="welcome">

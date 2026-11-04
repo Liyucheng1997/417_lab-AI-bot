@@ -439,6 +439,26 @@ async def list_processes(args):
     return _text(await asyncio.to_thread(run) or "没有匹配的进程")
 
 
-ALL_TOOLS = [screenshot, screen_info, cursor_position, click, move_mouse, drag, scroll, type_text,
+@tool("find_files", "按文件名在整台电脑上搜主人的文档、图片、视频、音乐、压缩包、软件快捷方式（毫秒级，"
+      "比 Glob / dir 快得多；不含系统文件、程序文件和代码文件）。多个关键词用空格分开；"
+      "支持 *.pdf 通配、ext:docx;pdf 限定类型、!词 排除、带 \\ 的路径片段（如 下载\\ 发票）。"
+      "结果按主人的使用习惯排序（常打开的在前），返回完整路径。",
+      {"query": str, "limit": Annotated[int, "最多返回几条，默认 30"]})
+async def find_files(args):
+    from .. import fileindex
+    fs = fileindex.instance
+    if fs is None:
+        return _text("文件索引不可用", error=True)
+    if not fs.ix.built and fs.state != "ready":
+        return _text("文件索引还在建立中（约 20 秒），请稍后再试，或先用 Glob", error=True)
+    r = await asyncio.to_thread(fs.search, args.get("query", ""), "all", "smart", 0, int(args.get("limit") or 30))
+    if not r["items"]:
+        return _text("没有找到。可以换个关键词、少写几个字，或者用 Glob 在具体文件夹里找（代码等文件不在索引里）。")
+    lines = [f"{it['path']}  {it['size']}  {it['time']}".rstrip() for it in r["items"]]
+    more = f"\n（共 {r['total']} 个，只列出前 {len(lines)} 个）" if r["total"] > len(lines) else ""
+    return _text("\n".join(lines) + more)
+
+
+ALL_TOOLS = [find_files, screenshot, screen_info, cursor_position, click, move_mouse, drag, scroll, type_text,
              press_keys, list_windows, focus_window, inspect_window, click_element, get_clipboard,
              set_clipboard, open_target, list_apps, wait, list_processes]

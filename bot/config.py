@@ -31,6 +31,9 @@ class Config:
     effort: str = "high"
     permission_policy: str = "smart"
     hotkey: str = "ctrl+alt+b"
+    search_hotkey: str = "ctrl+alt+f"
+    search_exclude: list = field(default_factory=list)
+    search_extensions: list = field(default_factory=list)
     cwd: str = ""
     panel_width: int = 460
     dock: str = "auto"

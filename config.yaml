@@ -54,6 +54,16 @@ fluid_color: "#af52de"
 fluid_opacity: 0.8
 avatar_size: 180
 
+# 手机投屏（面板标题栏的「手机」按钮；这些在那个页面的设置里也能改）
+#   phone_audio：手机声音从电脑播放    phone_screen_off：投屏时手机自己熄屏（省电、防偷看，电脑上照常操作）
+#   phone_on_top：投屏窗口置顶          phone_max_size：画面最长边像素（0 = 原画，卡的话改 1280 或 1024）
+#   phone_keyboard：sdk = 电脑键盘直接打英文、中文用 Ctrl+V 粘贴；uhid = 当成手机的实体键盘，用手机自己的输入法打中文
+phone_audio: true
+phone_screen_off: false
+phone_on_top: false
+phone_max_size: 0
+phone_keyboard: sdk
+
 # 是否加载你在 Claude Code 里配置的 MCP 服务器、技能和插件（~/.claude）
 load_user_settings: true
 

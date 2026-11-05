@@ -18,7 +18,8 @@ from datetime import datetime
 from pathlib import Path
 
 from .tools import desktop  # 先导入：设置 DPI 感知
-from . import dock, fileindex, shellicon, sop, suggest, updater, usage
+from .tools import phone as phone_tools
+from . import dock, fileindex, phone, shellicon, sop, suggest, updater, usage
 from .agent import BotSession
 from .brand import make_icon
 from . import __version__
@@ -265,6 +266,73 @@ class Api:
         from win32com.shell import shell, shellcon
         shell.ShellExecuteEx(fMask=shellcon.SEE_MASK_INVOKEIDLIST, lpVerb="properties", lpFile=path, nShow=1)
 
+    # ---------------- 手机投屏
+    def phone_state(self):
+        return self._app.phone_state()
+
+    def phone_setup(self):
+        self._app.phone_setup()
+
+    def phone_mirror(self, serial: str):
+        return self._app.phone_mirror(serial)
+
+    def phone_stop(self, serial: str):
+        m = phone.MIRRORS.get(serial)
+        if m:
+            m.stop()
+
+    def phone_key(self, serial: str, key: str):
+        return phone.key(serial, key)
+
+    def phone_shot(self, serial: str):
+        try:
+            path = phone.save_screenshot(serial)
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "path": str(path)}
+
+    def phone_open_shots(self):
+        phone.SHOT_DIR.mkdir(parents=True, exist_ok=True)
+        os.startfile(str(phone.SHOT_DIR))
+
+    def phone_text(self, serial: str, text: str):
+        return phone.type_text(serial, text)
+
+    def phone_wireless(self, serial: str):
+        return phone.to_wireless(serial)
+
+    def phone_connect(self, addr: str):
+        return phone.connect(addr)
+
+    def phone_disconnect(self, serial: str):
+        phone.disconnect(serial)
+
+    def phone_forget(self, addr: str):
+        phone.forget(addr)
+
+    def phone_pair_qr(self):
+        return self._app.phone_pair_qr()
+
+    def phone_pair_cancel(self):
+        if self._app.pairing:
+            self._app.pairing.cancel()
+        self._app.pairing = None
+
+    def phone_pair_code(self, addr: str, code: str):
+        return phone.pair(addr, code)
+
+    def phone_set(self, key: str, value):
+        return self._app.phone_set(key, value)
+
+    def phone_iphone(self):
+        exe = phone.iphone_receiver()
+        if exe:
+            os.startfile(exe)
+            return {"ok": True, "started": True}
+        import webbrowser
+        webbrowser.open(phone.UXPLAY_URL)
+        return {"ok": True, "started": False}
+
 
 class BotApp:
     def __init__(self):
@@ -295,6 +363,9 @@ class BotApp:
         self.usage_cache: dict | None = None
         self._usage_lock = threading.Lock()
         self.files = fileindex.FileSearch(self.emit, self.cfg.search_exclude, self.cfg.search_extensions)
+        self.pairing: phone.QrPairing | None = None  # 无线调试扫码配对
+        self._phone_dl: dict | None = None             # 投屏组件下载进度 / 出错信息
+        self._iphone_cache: tuple[float, bool] = (0, False)
         fileindex.instance = self.files  # 给 Bot 的 find_files 工具用
 
     # ------------------------------------------------------------ 线程桥
@@ -623,6 +694,130 @@ class BotApp:
         self.show()
         self.window.evaluate_js(f"window.bot && bot.prefill({json.dumps(text, ensure_ascii=False)})")
 
+    # ------------------------------------------------------------ 手机投屏
+    PHONE_SETTINGS = {"audio": "phone_audio", "screen_off": "phone_screen_off", "on_top": "phone_on_top",
+                      "max_size": "phone_max_size", "keyboard": "phone_keyboard"}
+
+    def _phone_opts(self) -> dict:
+        return {k: getattr(self.cfg, v) for k, v in self.PHONE_SETTINGS.items()}
+
+    def phone_state(self) -> dict:
+        now = time.time()
+        if now - self._iphone_cache[0] > 30:
+            self._iphone_cache = (now, bool(phone.iphone_receiver()))
+        st = {"tools": phone.available(), "version": phone.tools_version(), "download": self._phone_dl,
+              "settings": self._phone_opts(), "known": phone.known(), "iphone": self._iphone_cache[1],
+              "devices": [], "mirrors": [s for s, m in phone.MIRRORS.items() if m.alive()],
+              "pairing": None, "shots": str(phone.SHOT_DIR)}
+        if self.pairing:
+            st["pairing"] = {"state": self.pairing.state, "message": self.pairing.message, "serial": self.pairing.serial}
+        if st["tools"]:
+            try:
+                st["devices"] = phone.devices()
+                st["nearby"] = phone.nearby(st["devices"])
+            except Exception as e:
+                st["error"] = f"读取设备失败：{e}"
+        return st
+
+    def phone_setup(self) -> None:
+        """下载投屏组件（scrcpy + adb，约 11 MB）。"""
+        if self._phone_dl and "pct" in self._phone_dl:
+            return
+        self._phone_dl = {"pct": 0}
+
+        def run():
+            def progress(done, total):
+                self._phone_dl = {"pct": int(done * 100 / total) if total else 0, "mb": round(done / 1048576, 1)}
+            try:
+                phone.ensure_tools(progress)
+                self._phone_dl = None
+            except Exception as e:
+                print("下载投屏组件失败：", e)
+                self._phone_dl = {"error": f"下载失败：{e}"}
+            self.emit({"type": "phone", "event": "changed"})
+        threading.Thread(target=run, daemon=True, name="phone-setup").start()
+
+    def phone_pair_qr(self) -> dict:
+        if self.pairing:
+            self.pairing.cancel()
+        self.pairing = phone.QrPairing()
+        return {"qr": self.pairing.qr_png(), "name": self.pairing.name}
+
+    def phone_set(self, key: str, value) -> dict:
+        field = self.PHONE_SETTINGS.get(key)
+        if not field:
+            return self._phone_opts()
+        if key == "max_size":
+            value = int(value)
+        elif key == "keyboard":
+            value = "uhid" if value == "uhid" else "sdk"
+        else:
+            value = bool(value)
+        self.cfg.save_keys(**{field: value})
+        if key == "on_top":  # 置顶马上生效，其他的下次投屏生效
+            for m in list(phone.MIRRORS.values()):
+                m.set_on_top(value)
+        return self._phone_opts()
+
+    def _phone_place(self, ratio: float) -> tuple[int, int, int, int]:
+        """投屏窗口放在面板左边（中间留出工具条的位置），上下居中，高度占屏幕的 82%。"""
+        left, top, right, bottom = dock.work_area()
+        scale = user32.GetDpiForSystem() / 96
+        h = int((bottom - top) * 0.82)
+        w = round(h * ratio)
+        x = right - int((self.cfg.panel_width + 24) * scale) - int(76 * scale) - w
+        return max(left + int(12 * scale), x), top + (bottom - top - h) // 2, w, h
+
+    def phone_mirror(self, serial: str) -> dict:
+        m = phone.MIRRORS.get(serial)
+        if m and m.alive():
+            m.focus()
+            return {"ok": True, "already": True}
+        try:
+            m = phone.Mirror(serial, self._phone_opts(), self._phone_place, self.emit, self._phone_bar)
+            phone.MIRRORS[serial] = m
+            m.start()
+        except Exception as e:
+            phone.MIRRORS.pop(serial, None)
+            return {"ok": False, "error": f"投屏没能启动：{e}"}
+        return {"ok": True}
+
+    def _phone_bar(self, serial: str, action: str) -> None:
+        """投屏窗口旁边工具条的按钮。"""
+        m = phone.MIRRORS.get(serial)
+        if action == "pin":
+            if m:
+                m.set_on_top(not m.on_top)
+        elif action == "close":
+            if m:
+                m.stop()
+        elif action == "screenshot":
+            try:
+                path = phone.save_screenshot(serial)
+                msg = f"已保存到「{path.parent}」，也复制好了，可以直接粘贴"
+            except Exception as e:
+                msg = str(e)
+            if self.tray:
+                self.tray.notify(msg, "手机截图")
+        elif action in ("type", "ask"):
+            name = m.name if m else "手机"
+            self.auto_hidden = False
+            self.show(activate=True)
+            if action == "type":
+                self.emit({"type": "phone_open", "serial": serial, "focus": "text"})
+            else:
+                text = f"（在手机「{name}」上操作）帮我"
+                self.window.evaluate_js(f"window.bot && bot.prefill({json.dumps(text, ensure_ascii=False)}, true)")
+        else:
+            phone.key(serial, action)
+
+    def open_phone(self) -> None:
+        def run():
+            self.auto_hidden = False
+            self._show(True)
+            self.emit({"type": "phone_open"})
+        self._window_op(run)
+
     # ------------------------------------------------------------ 用量
     def read_usage(self, force: bool = False) -> dict:
         """订阅额度 + API 用量，同时读；60 秒内重复打开用缓存。"""
@@ -724,6 +919,7 @@ class BotApp:
             pystray.MenuItem("新对话", lambda: (self.submit(self.bot.start()), self.window.evaluate_js("bot.clear()"))),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("截图与识字", self._sop_menu(), visible=sop.available()),
+            pystray.MenuItem("手机投屏", lambda: self.open_phone()),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("打开配置文件", lambda: os.startfile(str(CONFIG_PATH))),
             pystray.MenuItem(lambda _: f"更新到 v{self.update_info['version']}" if self.update_info else "",
@@ -744,6 +940,10 @@ class BotApp:
         except Exception:
             pass
         sop.stop()
+        try:
+            phone.shutdown()  # 关掉投屏窗口和 adb 服务（不然更新时 adb.exe 被占用，覆盖不了）
+        except Exception:
+            pass
         if self.tray:
             self.tray.stop()
         # 保险：窗口关了但进程卡在退出阶段时强制结束，否则更新安装程序会一直等它
@@ -759,6 +959,7 @@ class BotApp:
         self.bot = BotSession(self.cfg, self.emit, self.ask_permission)
         desktop.before_pointer = self._before_pointer
         desktop.capture_guard = self._capture_guard
+        phone_tools.open_mirror = self.phone_mirror
         self.window = webview.create_window(
             TITLE, str(UI_DIR / "index.html"), js_api=Api(self), width=self.cfg.panel_width, height=800,
             frameless=True, easy_drag=False, on_top=True, background_color="#f5f5f7", text_select=True,
@@ -777,6 +978,10 @@ class BotApp:
         sop.listen(self.on_sop_message)
         sop.start()  # 截图 / OCR / 快捷短语，几百毫秒就绪，不等面板
         self._tray()
+        # 配对过的手机进了同一个 Wi-Fi 就自动连上（组件还没下载时，下载完下一轮就开始）
+        threading.Thread(target=phone.auto_connect_loop,
+                         args=(lambda: self.emit({"type": "phone", "event": "changed"}),),
+                         daemon=True, name="phone-auto").start()
         if FROZEN:
             threading.Thread(target=self._update_loop, daemon=True, name="update-check").start()
         # 窗口 / 任务栏图标用多尺寸的 icon.ico（和 exe、托盘同一个形象），高 DPI 下也清楚

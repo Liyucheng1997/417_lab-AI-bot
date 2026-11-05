@@ -49,7 +49,7 @@ from claude_agent_sdk import (  # noqa: E402
 
 from . import permissions  # noqa: E402
 from .config import DATA_DIR, MEMORY_PATH, Config, read_memory  # noqa: E402
-from .tools import desktop_server  # noqa: E402
+from .tools import desktop_server, phone_server  # noqa: E402
 
 Emit = Callable[[dict], Any]
 # 返回 "allow" / "always" / "deny"
@@ -71,6 +71,12 @@ SYSTEM_PROMPT = """
   - screenshot 看屏幕；inspect_window 读取窗口控件（比看图找坐标更准）；
   - click / click_element / type_text / press_keys / scroll / drag 操作鼠标键盘；
   - open 按名称打开软件、文件或网址；list_apps 查已安装软件；focus_window 切换窗口。
+- 操作主人的手机（mcp__phone__* 工具，Android 通过数据线或 Wi-Fi 连着时可用）：
+  - status 看连着哪些手机；screenshot 看手机屏幕；inspect 读取手机界面的文字和按钮（比看图找坐标更准）；
+  - tap / tap_element / swipe / type_text / press_key（back、home 等）操作；open_app 按名称打开 App；
+  - mirror 打开电脑上的手机投屏窗口（主人可以直接用鼠标操作手机）。
+  - 操作手机同样要「截图或 inspect → 执行一步 → 再确认」。主人说「手机上…」「在微信里…（手机）」时用这些工具。
+  - iPhone 不能被电脑控制（苹果不开放），只能投屏看画面。
 - 主人在 Claude Code 里配置的 MCP 工具、技能也都能用。
 
 # 做事方法
@@ -103,7 +109,7 @@ def _system_prompt() -> dict:
 
 
 def _tool_summary(name: str, args: dict) -> str:
-    short = name.replace("mcp__desktop__", "").replace("mcp__", "")
+    short = name.replace("mcp__desktop__", "").replace("mcp__phone__", "phone_").replace("mcp__", "")
     detail = permissions.describe(name, args)
     return f"{short}  {detail}"[:300]
 
@@ -141,7 +147,7 @@ class BotSession:
 
     # ------------------------------------------------------------ 生命周期
     def _options(self, resume: str | None) -> ClaudeAgentOptions:
-        mcp = {"desktop": desktop_server(), **(self.cfg.extra_mcp_servers or {})}
+        mcp = {"desktop": desktop_server(), "phone": phone_server(), **(self.cfg.extra_mcp_servers or {})}
         return ClaudeAgentOptions(
             model=self.cfg.model,
             effort=self.cfg.effort,
@@ -265,7 +271,7 @@ class BotSession:
         if not need or tool in self._always:
             return PermissionResultAllow()
         req = {"type": "permission", "id": uuid.uuid4().hex, "tool": tool,
-               "short": tool.replace("mcp__desktop__", ""),
+               "short": tool.replace("mcp__desktop__", "").replace("mcp__phone__", "phone_"),
                "detail": permissions.describe(tool, args)[:1500], "reason": reason}
         decision = await self.ask(req)
         if decision == "always":

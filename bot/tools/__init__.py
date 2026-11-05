@@ -1,6 +1,7 @@
 from claude_agent_sdk import create_sdk_mcp_server
 
 from .desktop import ALL_TOOLS
+from .phone import phone_server  # noqa: F401
 
 
 def desktop_server():

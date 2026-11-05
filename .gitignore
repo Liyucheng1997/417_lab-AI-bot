@@ -15,3 +15,6 @@ dist/
 # 体积大的二进制：OCR 引擎约 300MB（随 Release 附带），SOP.exe 用 sop/build.ps1 编译
 sop/bin/engine/
 sop/bin/SOP.exe
+
+# 手机投屏组件 scrcpy + adb（约 11 MB，首次使用或打包时从 GitHub 下载并校验）
+phone/

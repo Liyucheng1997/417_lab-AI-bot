@@ -64,6 +64,8 @@ Source: "{#SrcDir}\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversio
 Source: "{#SrcDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SrcDir}\sop\README.md"; DestDir: "{app}\sop"; Flags: ignoreversion
 Source: "{#SrcDir}\sop\bin\SOP.exe"; DestDir: "{app}\sop\bin"; Flags: ignoreversion
+; 手机投屏组件 scrcpy + adb（约 11 MB），更新包里也带着
+Source: "{#SrcDir}\phone\scrcpy\*"; DestDir: "{app}\phone\scrcpy"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; 用户会改的配置：只在第一次安装时放进去，更新和卸载都不动
 Source: "{#SrcDir}\config.yaml"; DestDir: "{app}"; Flags: onlyifdoesntexist uninsneveruninstall
 Source: "{#SrcDir}\sop\bin\config.json"; DestDir: "{app}\sop\bin"; Flags: onlyifdoesntexist uninsneveruninstall
@@ -90,6 +92,7 @@ Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"; Flags: nowait; Check: IsUpdate
 Type: files; Name: "{userstartup}\{#AppName}.vbs"
 Type: filesandordirs; Name: "{app}\_internal"
 Type: filesandordirs; Name: "{app}\sop\bin\logs"
+Type: filesandordirs; Name: "{app}\phone"
 
 [Code]
 function IsUpdate: Boolean;

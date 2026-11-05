@@ -12,6 +12,7 @@ READ_ONLY_TOOLS = {
     "mcp__desktop__inspect_window", "mcp__desktop__get_clipboard", "mcp__desktop__wait",
     "mcp__desktop__list_processes", "mcp__desktop__cursor_position", "mcp__desktop__list_apps",
     "mcp__desktop__find_files",
+    "mcp__phone__status", "mcp__phone__screenshot", "mcp__phone__inspect", "mcp__phone__list_apps",
 }
 
 # 操作鼠标键盘、打开软件等：smart 下放行，strict 下询问
@@ -20,7 +21,22 @@ DESKTOP_ACTION_TOOLS = {
     "mcp__desktop__scroll", "mcp__desktop__type_text", "mcp__desktop__press_keys",
     "mcp__desktop__focus_window", "mcp__desktop__open", "mcp__desktop__set_clipboard",
     "mcp__desktop__click_element",
+    "mcp__phone__tap", "mcp__phone__tap_element", "mcp__phone__swipe", "mcp__phone__type_text",
+    "mcp__phone__press_key", "mcp__phone__open_app", "mcp__phone__mirror",
 }
+
+# 手机上的 adb shell 命令：这些会删数据、卸载、恢复出厂、重启、改系统设置，要先问
+DANGEROUS_PHONE_SHELL = [
+    (r"\brm\s", "删除手机上的文件"),
+    (r"\bpm\s+(uninstall|clear|disable|disable-user|reset-permissions)\b", "卸载 App / 清空 App 数据"),
+    (r"\b(reboot|wipe|recovery|factory|fastboot)\b", "重启 / 恢复出厂"),
+    (r"\bsettings\s+(put|delete|reset)\b", "修改手机系统设置"),
+    (r"\b(svc|cmd\s+(wifi|connectivity|bluetooth_manager))\b", "开关网络 / 蓝牙"),
+    (r"\b(dd|mkfs|format)\b", "写入磁盘"),
+    (r"\bam\s+(force-stop|kill)\b", "结束 App"),
+    (r"\bcontent\s+(insert|update|delete)\b", "改写手机数据库（短信、联系人等）"),
+    (r"\bservice\s+call\b", "调用系统服务"),
+]
 
 SHELL_TOOLS = {"Bash", "PowerShell"}
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
@@ -80,6 +96,12 @@ def classify(tool: str, args: dict, policy: str) -> tuple[bool, str]:
             if re.search(pattern, cmd, re.I):
                 return True, reason
         return False, ""
+    if tool == "mcp__phone__shell":
+        cmd = str(args.get("command", ""))
+        for pattern, reason in DANGEROUS_PHONE_SHELL:
+            if re.search(pattern, cmd, re.I):
+                return True, reason
+        return False, ""
     if tool in WRITE_TOOLS:
         path = str(args.get("file_path") or args.get("notebook_path") or "")
         if PROTECTED_PATHS.match(path):
@@ -95,7 +117,7 @@ def classify(tool: str, args: dict, policy: str) -> tuple[bool, str]:
 
 def describe(tool: str, args: dict) -> str:
     """一行人话描述，用于确认卡片。"""
-    if tool in SHELL_TOOLS:
+    if tool in SHELL_TOOLS or tool == "mcp__phone__shell":
         return str(args.get("command", ""))
     if tool in WRITE_TOOLS:
         return str(args.get("file_path") or args.get("notebook_path") or "")

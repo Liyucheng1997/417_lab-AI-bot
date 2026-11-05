@@ -32,6 +32,10 @@ Copy-Item config.yaml, README.md $out -Force
 New-Item -ItemType Directory -Force "$out\sop" | Out-Null
 robocopy sop\bin "$out\sop\bin" /E /XD logs backup /NFL /NDL /NJH /NJS /NP | Out-Null
 Copy-Item sop\README.md "$out\sop\README.md" -Force
+# 手机投屏组件（scrcpy + adb）：没有就先下载（按官方 SHA256 校验）
+& $py -c "from bot import phone; phone.ensure_tools()"
+if ($LASTEXITCODE -ne 0) { throw '下载手机投屏组件失败' }
+robocopy phone\scrcpy "$out\phone\scrcpy" /E /NFL /NDL /NJH /NJS /NP | Out-Null
 
 $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe") |
     Where-Object { Test-Path $_ } | Select-Object -First 1

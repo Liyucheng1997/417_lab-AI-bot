@@ -84,6 +84,27 @@
 - Bot 自己找文件时也会先查这个索引（`find_files` 工具），比在磁盘上一层层翻快得多。
 - `config.yaml`：`search_hotkey` 换快捷键（留空不用）、`search_exclude` 排除文件夹、`search_extensions` 加扩展名。
 
+**手机投屏**（标题栏的手机按钮，或托盘「手机投屏」）：类似华为多屏协同，电脑上出现一个实时的手机窗口，
+直接用鼠标点、键盘打字，声音从电脑出来。
+
+- **Android（含鸿蒙 4 及以前）**：基于开源的 [scrcpy](https://github.com/Genymobile/scrcpy)（含 adb，约 11 MB，
+  装在 `phone\scrcpy`；安装包里带着，源码版第一次用时自动从 GitHub 下载并按官方 SHA256 校验）。
+  - 连接：数据线（手机打开「开发者选项 → USB 调试」）；无线调试扫码配对 / 配对码（Android 11+）；
+    数据线连着时点「切换到无线」，之后拔线用 Wi-Fi 继续。连过的地址会记住。
+  - 投屏窗口做成苹果 iPhone 镜像的样子：没有标题栏，圆角屏幕 + 细黑边框 + 阴影，按住边框拖动；投屏期间手机 10 分钟才自动锁屏。
+    用电脑输入法直接往手机里打中文（scrcpy 打不进去的字会自动走剪贴板粘贴过去，剪贴板原来的内容会还原）。
+    右键返回、中键主页；拖文件进去传到手机 Download，拖 APK 安装；两边剪贴板自动同步。
+    窗口旁边贴着一条工具条：返回 / 主页 / 多任务 / 通知栏 / 音量 / 截图（存到「图片\手机截图」并复制）/
+    锁屏 / 置顶 / 从电脑打中文 / 让 Bot 操作手机。
+  - 设置（页面里或 `config.yaml` 的 `phone_*`）：声音从电脑播放、投屏时手机熄屏、置顶、画质、
+    键盘方式（`uhid` = 当成手机的实体键盘，用手机输入法打中文）。
+  - Bot 也能自己操作手机（`mcp__phone__*` 工具：截图、读界面控件、点击、滑动、输入、按键、打开 App），
+    比如「在手机上打开微信，看看最新消息」。删文件、卸载 App、改系统设置等手机命令会先问你。
+  - 纯血鸿蒙（HarmonyOS NEXT / 5）不兼容安卓调试，暂不支持。
+- **iPhone / iPad**：苹果不允许 Windows 控制 iPhone（「iPhone 镜像」只在 Mac 上有），只能用 AirPlay 屏幕镜像看画面：
+  页面里一键打开 [uxplay-windows](https://github.com/leapbtw/uxplay-windows) 接收端（没装会打开下载页），
+  然后在 iPhone 控制中心点「屏幕镜像」。
+
 **用量**（标题栏的柱状图按钮）：
 
 - **Claude 订阅**：5 小时会话、本周额度的已用百分比和重置时间，和 Claude Code 的 `/usage` 一致
@@ -143,6 +164,9 @@ bot/
   agent.py        引擎：ClaudeSDKClient 会话、事件流、权限回调、系统提示
   permissions.py  风险分级规则
   tools/desktop.py 桌面操作工具（进程内 MCP 服务器 desktop）
+  tools/phone.py  手机操作工具（进程内 MCP 服务器 phone：截图、读界面、点击、输入…）
+  phone.py        手机投屏：scrcpy / adb 下载、连接（USB、无线配对）、投屏窗口
+  phonebar.py     投屏窗口旁边的竖向工具条
   app.py          桌面面板：pywebview 窗口、托盘、全局快捷键
   dock.py         贴边停靠：滑入滑出动画、屏幕边缘把手
   brand.py        图标：3D 数字分身头像（ui/icon.png、ui/icon-face.png），生成托盘 / exe / 窗口图标
@@ -157,6 +181,7 @@ config.yaml       配置
 data/             日志、长期记忆（memory.md）
 workspace/        Bot 的默认工作目录；对话历史按此目录保存
 installer/        Inno Setup 安装包脚本（MyAIBot.iss）
+phone/scrcpy/     手机投屏组件 scrcpy + adb（不在仓库里，自动下载）
 sop/              截图 / 贴图 / OCR / 快捷短语模块：src（C# 源码）、bin（SOP.exe、OCR 引擎、配置）
 ```
 

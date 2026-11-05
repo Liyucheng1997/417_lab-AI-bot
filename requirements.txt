@@ -10,3 +10,4 @@ psutil
 pywin32
 uiautomation
 pyyaml
+qrcode>=7.4

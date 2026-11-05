@@ -53,7 +53,8 @@
   let held = false;
   function syncHold() {
     const typing = (el) => document.activeElement === el && !!el.value.trim();
-    const h = !!pop || !!document.querySelector('.viewer') || typing(input) || typing(sInput);
+    const h = !!pop || !!document.querySelector('.viewer') || typing(input) || typing(sInput) || typing($('#ph-text'))
+      || (typeof P !== 'undefined' && P.open && !!P.qr);  // 扫码配对时别收起
     if (h !== held && api) { held = h; api.set_hold(h); }
   }
 
@@ -156,8 +157,14 @@
     session() {},
     shown() { app.classList.remove('enter'); void app.offsetWidth; app.classList.add('enter'); if (window.fluid) fluid.resume(); if (avatar && $('#welcome').style.display !== 'none') avatar.resume(); },
     hidden() { if (window.fluid) fluid.pause(); if (avatar) avatar.pause(); },
-    focus() { if (S.open) sInput.focus(); else input.focus(); },
-    search_open() { openSearch(); },
+    focus() { if (S.open) sInput.focus(); else if (P.open) { if (document.activeElement !== $('#ph-text')) $('#ph-scroll').focus(); } else input.focus(); },
+    search_open() { if (P.open) closePhone(); openSearch(); },
+    phone(ev) {
+      if (ev.event === 'error') toast(ev.message, 'error');
+      else if (ev.event === 'started') toast(`${ev.name} 已投屏到电脑`, 'success');
+      phoneRefresh();
+    },
+    phone_open(ev) { if (ev.serial) P.target = ev.serial; openPhone(ev.focus); },
     index(ev) { S.index = ev; renderStatus(); if (S.open && ev.state === 'ready' && S.q) runSearch(true); },
     suggestions(ev) { renderSuggestions(ev, true); },
     suggestions_failed() { $('#btn-reshuffle').classList.remove('spinning'); if (!$('#suggest').children.length || $('#suggest .skeleton')) renderSuggestions(null, true); },
@@ -193,6 +200,9 @@
     click_element: '点击控件', get_clipboard: '读剪贴板', set_clipboard: '写剪贴板', wait: '等待', list_apps: '查找软件',
     list_processes: '查看进程', screen_info: '屏幕信息', PowerShell: 'PowerShell', Bash: '命令行', Read: '读文件',
     Write: '写文件', Edit: '改文件', Glob: '找文件', Grep: '搜索内容', WebSearch: '网页搜索', WebFetch: '读网页',
+    phone_status: '手机状态', phone_screenshot: '手机截图', phone_inspect: '读取手机界面', phone_tap: '点手机',
+    phone_tap_element: '点手机控件', phone_swipe: '手机滑动', phone_type_text: '手机打字', phone_press_key: '手机按键',
+    phone_open_app: '打开手机 App', phone_list_apps: '查手机 App', phone_mirror: '手机投屏', phone_shell: '手机命令',
     TodoWrite: '计划', Agent: '子任务', Task: '子任务', ToolSearch: '加载工具', Skill: '技能',
   };
   const label = (n) => LABELS[n] || n;
@@ -201,10 +211,11 @@
     onEvents(list) { for (const ev of list) { try { (handlers[ev.type] || (() => {}))(ev); } catch (e) { console.error(e); } } },
     focusInput() { input.focus(); },
     // 截图工具的「AI」按钮 / OCR「发给 AI」：把内容放进输入框，光标停在末尾等主人补问题
-    prefill(text) {
+    prefill(text, quiet) {
+      if (P.open) closePhone();
       input.value = input.value.trim() ? `${input.value.trimEnd()}\n${text}` : text;
       autosize(); input.focus(); input.setSelectionRange(input.value.length, input.value.length);
-      toast('已附上，补一句你的问题后按 Enter');
+      if (!quiet) toast('已附上，补一句你的问题后按 Enter');
     },
     clear() {
       msgs.innerHTML = ''; hideTyping(); endBot(); curSteps = null;
@@ -660,6 +671,7 @@
   }
 
   function openSearch() {
+    if (P.open) closePhone();
     if (!S.open) {
       S.open = true; app.classList.add('searching'); renderCats();
       if (api) api.set_searching(true);
@@ -717,6 +729,248 @@
   })));
   $('#s-rebuild').onclick = async () => { await api.search_rebuild(); toast('开始重新扫描，大约半分钟，期间照常可以搜'); S.index = { ...(S.index || {}), state: 'scanning', scanned: 0 }; renderStatus(); };
 
+
+  // ---------------- 手机投屏（Android：scrcpy；iPhone：AirPlay 只能看） ----------------
+  var P = { open: false, st: null, timer: 0, tab: 'qr', qr: null, target: null, busy: {} };
+  const phoneIcon = (cls = '') => `<i class="dev-ico ${cls}"></i>`;
+
+  function phoneDevices() { return (P.st && P.st.devices || []).filter((d) => d.state === 'device'); }
+  function phoneTarget() {
+    const ready = phoneDevices();
+    if (P.target && ready.some((d) => d.serial === P.target)) return P.target;
+    const live = ready.find((d) => P.st.mirrors.includes(d.serial));
+    return (live || ready[0] || {}).serial || null;
+  }
+
+  async function phoneRefresh() {
+    if (!api) return;
+    try { P.st = await api.phone_state(); } catch (e) { console.warn(e); return; }
+    $('#btn-phone').classList.toggle('live', P.st.mirrors.length > 0);
+    if (P.open) renderPhone();
+  }
+  function phonePoll() {
+    clearTimeout(P.timer);
+    if (!P.open) return;
+    const fast = (P.st && P.st.download && 'pct' in P.st.download) || (P.st && P.st.pairing && ['waiting', 'pairing', 'connecting'].includes(P.st.pairing.state));
+    P.timer = setTimeout(async () => { await phoneRefresh(); phonePoll(); }, fast ? 700 : 1600);
+  }
+
+  function renderPhone() {
+    const st = P.st; if (!st) return;
+    // 首次使用：下载投屏组件
+    const setup = $('#ph-setup'), main = $('#ph-main');
+    if (!st.tools) {
+      main.hidden = true; setup.hidden = false;
+      const dl = st.download;
+      let body;
+      if (dl && 'pct' in dl) body = `<div class="ph-bar"><i style="width:${dl.pct}%"></i></div><p>正在下载… ${dl.mb || 0} MB（${dl.pct}%）</p>`;
+      else body = `${dl && dl.error ? `<p style="color:var(--danger)">${esc(dl.error)}</p>` : ''}<button class="btn btn-primary" id="ph-dl">${dl && dl.error ? '重试' : '下载投屏组件（约 11 MB）'}</button>`;
+      setup.innerHTML = `<div class="ph-card ph-hero">${phoneIcon()}<b>把手机搬到电脑上</b>
+        <p>手机画面实时显示在电脑上，用鼠标点、用键盘打字，声音也从电脑出来。文件拖进去就传到手机，两边剪贴板自动同步。</p><p>第一次用要下载开源投屏组件 scrcpy（含 adb）。</p>${body}</div>`;
+      const b = $('#ph-dl'); if (b) b.onclick = async () => { await api.phone_setup(); await phoneRefresh(); phonePoll(); };
+      return;
+    }
+    setup.hidden = true; main.hidden = false;
+    renderDevices(); renderPairing(); renderKnown(); renderIos(); renderPhoneSettings();
+    $('#ph-foot').innerHTML = `投屏组件：scrcpy ${esc(st.version || '')}（开源，Genymobile） · <a id="ph-shots">打开手机截图文件夹</a>`;
+    $('#ph-shots').onclick = () => api.phone_open_shots();
+  }
+
+  function deviceCard(d) {
+    const live = P.st.mirrors.includes(d.serial);
+    const sub = [];
+    if (d.state === 'device') {
+      if (d.os) sub.push(esc(d.os));
+      sub.push(`<span class="tag">${d.wireless ? '无线' : 'USB'}</span>`);
+      if (d.battery != null) sub.push(`电量 ${d.battery}%`);
+      if (live) sub.push('<span class="tag live">投屏中</span>');
+    } else if (d.state === 'unauthorized') sub.push('<span class="tag warn">等待手机授权</span>');
+    else sub.push(`<span class="tag warn">${d.state === 'offline' ? '连接断开' : esc(d.state)}</span>`);
+    const busy = P.busy[d.serial];
+    let actions = '', hint = '';
+    if (d.state === 'device') {
+      actions = live
+        ? `<button class="btn btn-sm btn-primary" data-a="focus">回到投屏窗口</button><button class="btn btn-sm" data-a="stop">结束投屏</button>`
+        : `<button class="btn btn-sm btn-primary" data-a="mirror">${busy === 'mirror' ? '<i class="ph-busy"></i>正在打开' : '投屏'}</button>`;
+      actions += `<button class="btn btn-sm" data-a="shot">截图</button>`;
+      if (!d.wireless) actions += `<button class="btn btn-sm" data-a="wireless" title="打开手机的无线调试端口，之后可以拔掉数据线">${busy === 'wireless' ? '<i class="ph-busy"></i>切换中' : '切换到无线'}</button>`;
+      else actions += `<button class="btn btn-sm" data-a="disconnect">断开</button>`;
+    } else if (d.state === 'unauthorized') {
+      hint = '解锁手机，在弹出的「允许 USB 调试吗？」里点<b>允许</b>（建议勾上「一律允许使用这台计算机进行调试」）。没弹出的话拔插一下数据线。';
+    } else {
+      hint = d.wireless ? '无线连接断开了。确认手机和电脑在同一个 Wi-Fi，再在下面重新连接。' : '拔插一下数据线；还不行就在开发者选项里关掉再打开 USB 调试。';
+      actions = d.wireless ? `<button class="btn btn-sm" data-a="disconnect">移除</button>` : '';
+    }
+    return `<div class="ph-card" data-serial="${esc(d.serial)}"><div class="dev">${phoneIcon(live ? 'on' : d.state === 'device' ? '' : 'wait')}
+      <div class="dev-main"><div class="dev-name" title="${esc(d.serial)}">${esc(d.name)}</div><div class="dev-sub">${sub.join('')}</div></div></div>
+      ${actions ? `<div class="dev-actions">${actions}</div>` : ''}${hint ? `<div class="dev-hint">${hint}</div>` : ''}</div>`;
+  }
+
+  function renderDevices() {
+    const box = $('#ph-devices'), list = P.st.devices || [];
+    const sig = JSON.stringify([list, P.st.mirrors, P.busy, P.st.nearby]);
+    if (box.dataset.sig === sig) return;  // 没变就不重画（免得按钮闪）
+    box.dataset.sig = sig;
+    box.innerHTML = list.length ? list.map(deviceCard).join('')
+      : `<div class="ph-card ph-empty"><b>还没有连上手机</b>${(P.st.nearby || []).length ? `同一个 Wi-Fi 里发现 ${P.st.nearby.length} 台开着无线调试的手机（${P.st.nearby.map((n) => esc(n.host)).join('、')}），用下面的二维码配对一次就能用`
+        : '手机打开「无线调试」，用下面的二维码配对一次，以后自动连上'}${P.st.error ? `<br><span style="color:var(--danger)">${esc(P.st.error)}</span>` : ''}</div>`;
+    box.querySelectorAll('[data-a]').forEach((b) => b.onclick = () => phoneAction(b.closest('[data-serial]').dataset.serial, b.dataset.a));
+    const ready = phoneDevices();
+    $('#ph-send').hidden = !ready.length;
+    const t = phoneTarget();
+    const name = (ready.find((d) => d.serial === t) || {}).name;
+    $('#ph-text').placeholder = ready.length > 1 ? `打字发到「${name}」当前的输入框（中文也行），Enter 发送` : '在这里打字（中文也行），按 Enter 发到手机当前的输入框';
+  }
+
+  async function phoneAction(serial, a) {
+    P.target = serial;
+    if (a === 'mirror') {
+      P.busy[serial] = 'mirror'; renderDevices();
+      const r = await api.phone_mirror(serial);
+      if (r && !r.ok) toast(r.error, 'error');
+      setTimeout(() => { delete P.busy[serial]; phoneRefresh(); }, 2500);
+    } else if (a === 'focus') await api.phone_mirror(serial);
+    else if (a === 'stop') { await api.phone_stop(serial); phoneRefresh(); }
+    else if (a === 'shot') {
+      const r = await api.phone_shot(serial);
+      toast(r.ok ? '截图已保存并复制，可以直接粘贴' : r.error, r.ok ? 'success' : 'error');
+    } else if (a === 'wireless') {
+      P.busy[serial] = 'wireless'; renderDevices();
+      const r = await api.phone_wireless(serial);
+      delete P.busy[serial];
+      toast(r.ok ? '已切换到无线，现在可以拔掉数据线了' : r.error, r.ok ? 'success' : 'error');
+      phoneRefresh();
+    } else if (a === 'disconnect') { await api.phone_disconnect(serial); phoneRefresh(); }
+  }
+
+  async function phoneSendText() {
+    const box = $('#ph-text'), text = box.value;
+    const serial = phoneTarget();
+    if (!text.trim() || !serial) return;
+    const r = await api.phone_text(serial, text);
+    if (r.ok) { box.value = ''; toast('已发到手机', 'success'); } else {
+      if (r.need_mirror) { toast('中文要通过投屏窗口粘贴，正在打开投屏…'); await api.phone_mirror(serial); setTimeout(() => phoneSendText(), 3500); } else toast(r.error, 'error');
+    }
+    syncHold();
+  }
+  $('#ph-text').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); phoneSendText(); }
+  });
+  $('#ph-text').addEventListener('input', syncHold);
+  $('#ph-text-go').onclick = phoneSendText;
+
+  // 连接方式
+  function phoneTab(t) {
+    P.tab = t;
+    $('#ph-tabs').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.t === t));
+    document.querySelectorAll('.ph-tab').forEach((x) => { x.hidden = x.dataset.t !== t; });
+    if (t === 'qr' && !P.qr) startQr();
+    if (t !== 'qr' && P.qr) { api.phone_pair_cancel(); P.qr = null; $('#ph-qr').innerHTML = ''; }
+    syncHold();
+  }
+  $('#ph-tabs').querySelectorAll('button').forEach((b) => b.onclick = () => phoneTab(b.dataset.t));
+  async function startQr() {
+    $('#ph-qr').innerHTML = '<div class="qr-msg"><i class="ph-busy"></i>正在生成二维码…</div>';
+    P.qr = await api.phone_pair_qr();
+    $('#ph-qr').innerHTML = `<img src="${P.qr.qr}" alt="配对二维码"><div class="qr-msg" id="qr-msg">用手机的「使用二维码配对设备」扫这个码</div>`;
+    phoneRefresh(); phonePoll();
+  }
+  function renderPairing() {
+    if (!P.qr && P.tab === 'qr' && !$('#ph-qr').children.length) {
+      $('#ph-qr').innerHTML = '<button class="btn btn-sm" id="qr-show">显示配对二维码</button>';
+      $('#qr-show').onclick = startQr;
+    }
+    const p = P.st.pairing, msg = $('#qr-msg');
+    if (!p || !msg || !P.qr) return;
+    msg.className = `qr-msg ${p.state === 'error' ? 'err' : p.state === 'done' ? 'ok' : ''}`;
+    const spin = ['pairing', 'connecting'].includes(p.state) ? '<i class="ph-busy"></i>' : '';
+    msg.innerHTML = spin + esc(p.message) + (p.state === 'error' ? ' <a id="qr-retry" style="cursor:pointer;color:var(--accent-text)">刷新</a>' : '');
+    const retry = $('#qr-retry'); if (retry) retry.onclick = startQr;
+    if (p.state === 'done' && !P.qrDone) {
+      P.qrDone = true; toast('手机已无线连接', 'success');
+      setTimeout(() => { P.qrDone = false; if (P.qr) { P.qr = null; api.phone_pair_cancel(); $('#ph-qr').innerHTML = ''; } }, 1500);
+    }
+  }
+  $('#ph-pair-go').onclick = async () => {
+    const b = $('#ph-pair-go'); b.innerHTML = '<i class="ph-busy"></i>正在配对'; b.disabled = true;
+    const r = await api.phone_pair_code($('#ph-pair-addr').value, $('#ph-pair-code').value);
+    b.textContent = '配对并连接'; b.disabled = false;
+    if (r.ok) { toast(r.serial ? '配对成功，已连接' : '配对成功。再在「直接连接」里填无线调试页面上的 IP 地址和端口', 'success'); $('#ph-pair-code').value = ''; }
+    else toast(r.error, 'error');
+    phoneRefresh();
+  };
+  async function phoneConnect(addr) {
+    if (!addr.trim()) return;
+    const b = $('#ph-connect'); b.innerHTML = '<i class="ph-busy"></i>连接中'; b.disabled = true;
+    const r = await api.phone_connect(addr);
+    b.textContent = '连接'; b.disabled = false;
+    toast(r.ok ? '已连接' : r.error, r.ok ? 'success' : 'error');
+    phoneRefresh();
+  }
+  $('#ph-connect').onclick = () => phoneConnect($('#ph-addr').value);
+  $('#ph-addr').addEventListener('keydown', (e) => { if (e.key === 'Enter') phoneConnect($('#ph-addr').value); });
+  function renderKnown() {
+    const box = $('#ph-known'), rows = P.st.known || [];
+    const online = new Set((P.st.devices || []).map((d) => d.serial));
+    const sig = JSON.stringify([rows, [...online]]);
+    if (box.dataset.sig === sig) return;
+    box.dataset.sig = sig;
+    box.innerHTML = rows.length ? `<div class="ph-form-h" style="margin-top:6px"><small>以前连过的</small></div>` + rows.map((k) => `<div class="known" data-addr="${esc(k.addr)}">
+      <span>${esc(k.name)}</span><small>${esc(k.addr)}</small>${online.has(k.addr) ? '<span class="tag live" style="flex:none">已连接</span>' : '<a data-k="go">连接</a>'}<a data-k="forget" title="从列表里删掉">忘记</a></div>`).join('') : '';
+    box.querySelectorAll('[data-k]').forEach((a) => a.onclick = async () => {
+      const addr = a.closest('[data-addr]').dataset.addr;
+      if (a.dataset.k === 'go') phoneConnect(addr); else { await api.phone_forget(addr); phoneRefresh(); }
+    });
+  }
+
+  function renderIos() {
+    const box = $('#ph-ios'), sig = String(P.st.iphone);
+    if (box.dataset.sig === sig) return;
+    box.dataset.sig = sig;
+    box.innerHTML = `<p>苹果不允许电脑控制 iPhone（这个功能只在 Mac 上有），在 Windows 上只能用 <b>AirPlay 屏幕镜像</b>把画面投过来看，不能用鼠标点。</p>
+      <ol class="ph-steps"><li>iPhone 和电脑连同一个 Wi-Fi</li><li>电脑上打开 AirPlay 接收端${P.st.iphone ? '' : '（第一次要先安装开源的 uxplay-windows）'}</li>
+      <li>iPhone 从右上角下拉控制中心 → <b>屏幕镜像</b> → 选这台电脑</li></ol>
+      <button class="btn btn-sm" id="ph-ios-go">${P.st.iphone ? '打开 AirPlay 接收端' : '下载 uxplay-windows（GitHub）↗'}</button>`;
+    $('#ph-ios-go').onclick = async () => {
+      const r = await api.phone_iphone();
+      toast(r.started ? '已打开接收端，在 iPhone 控制中心点「屏幕镜像」' : '已在浏览器打开下载页，装好后回来点这里', 'success');
+    };
+  }
+
+  const MAX_SIZES = [[0, '原画（最清楚）'], [1920, '1920'], [1280, '1280（省流量）'], [1024, '1024（最流畅）']];
+  function renderPhoneSettings() {
+    const box = $('#ph-settings'), s = P.st.settings, sig = JSON.stringify(s);
+    if (box.dataset.sig === sig) return;
+    box.dataset.sig = sig;
+    const sw = (k, label, sub) => `<div class="set-row"><label>${label}<small>${sub}</small></label><button class="switch${s[k] ? ' on' : ''}" data-k="${k}" role="switch" aria-checked="${!!s[k]}"></button></div>`;
+    box.innerHTML = sw('audio', '声音从电脑播放', '需要 Android 11 及以上；关掉则声音留在手机上')
+      + sw('screen_off', '投屏时手机熄屏', '省电、防偷看，电脑上照常操作')
+      + sw('on_top', '投屏窗口置顶', '一直浮在其他窗口上面')
+      + `<div class="set-row"><label>画质<small>卡顿的话调低一点</small></label><select data-k="max_size">${MAX_SIZES.map(([v, n]) => `<option value="${v}"${+s.max_size === v ? ' selected' : ''}>${n}</option>`).join('')}</select></div>`
+      + `<div class="set-row"><label>键盘打字<small>${s.keyboard === 'uhid' ? '电脑键盘当成手机的实体键盘，用手机输入法打中文' : '用电脑的输入法直接打字，中文也行'}</small></label>
+        <select data-k="keyboard"><option value="sdk"${s.keyboard !== 'uhid' ? ' selected' : ''}>电脑输入</option><option value="uhid"${s.keyboard === 'uhid' ? ' selected' : ''}>手机输入法</option></select></div>`;
+    box.querySelectorAll('.switch').forEach((b) => b.onclick = async () => { P.st.settings = await api.phone_set(b.dataset.k, !s[b.dataset.k]); renderPhoneSettings(); });
+    box.querySelectorAll('select').forEach((x) => x.onchange = async () => { P.st.settings = await api.phone_set(x.dataset.k, x.value); renderPhoneSettings(); });
+  }
+
+  function openPhone(focus) {
+    if (S.open) closeSearch();
+    if (!P.open) { P.open = true; app.classList.add('phoning'); }
+    phoneRefresh().then(() => {
+      phonePoll();
+      if (P.tab === 'qr' && !P.qr && P.st && P.st.tools && !(P.st.devices || []).length) startQr();
+      if (focus === 'text') { const t = $('#ph-text'); if (!$('#ph-send').hidden) { t.focus(); } } });
+    syncHold();
+  }
+  function closePhone() {
+    P.open = false; app.classList.remove('phoning'); clearTimeout(P.timer);
+    if (P.qr) { api.phone_pair_cancel(); P.qr = null; $('#ph-qr').innerHTML = ''; }
+    syncHold(); input.focus();
+  }
+  $('#btn-phone').onclick = () => (P.open ? closePhone() : openPhone());
+  $('#ph-close').onclick = closePhone;
+  $('#phone').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePhone(); } });
+
   // ---------------- 启动 ----------------
   applyTheme();
   window.addEventListener('pywebviewready', async () => {
@@ -733,6 +987,7 @@
     if (state.update) handlers.update({ state: 'available', ...state.update });
     $('#btn-search').title = `搜索文件${state.search_hotkey ? `（${state.search_hotkey.toUpperCase()}）` : ''}`;
     S.index = await api.search_status();
+    phoneRefresh();
     input.focus();
   });
 })();

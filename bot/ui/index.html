@@ -20,6 +20,9 @@
       <button class="icon-btn" id="btn-search" title="搜索文件">
         <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>
       </button>
+      <button class="icon-btn" id="btn-phone" title="手机投屏：在电脑上操作手机">
+        <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg>
+      </button>
       <button class="icon-btn" id="btn-usage" title="用量：订阅额度与 API">
         <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20V12M12 20V5M19 20v-9"/></svg>
       </button>
@@ -56,6 +59,80 @@
     <div class="s-meta"><span id="s-count"></span><button class="s-sort" id="s-sort"></button></div>
     <div class="s-list" id="s-list" tabindex="-1"></div>
     <div class="s-foot"><span id="s-status"></span><a id="s-rebuild" title="重新扫描所有磁盘（平时会自动实时更新，一般不需要）">重建索引</a></div>
+  </section>
+
+  <section id="phone" class="phone" aria-label="手机投屏">
+    <div class="ph-top">
+      <div class="ph-title"><b>手机投屏</b><small>在电脑上直接用鼠标键盘操作手机</small></div>
+      <button class="icon-btn" id="ph-close" title="返回对话（Esc）">
+        <svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="ph-scroll" id="ph-scroll" tabindex="-1">
+      <div id="ph-setup"></div>
+      <div id="ph-main">
+        <div class="ph-h">我的手机</div>
+        <div id="ph-devices"></div>
+        <div class="ph-card ph-send" id="ph-send" hidden>
+          <textarea id="ph-text" rows="2" placeholder="在这里打字（中文也行），按 Enter 发到手机当前的输入框"></textarea>
+          <button class="btn btn-sm" id="ph-text-go">发送</button>
+        </div>
+
+        <div class="ph-h">用 Wi-Fi 连接手机<small>手机和电脑连同一个 Wi-Fi 就行，不用数据线</small></div>
+        <div class="ph-card">
+          <div class="seg" id="ph-tabs">
+            <button data-t="qr" class="on">扫码配对</button><button data-t="ip">配对码 / 地址</button><button data-t="usb">没有无线调试？</button>
+          </div>
+          <div class="ph-tab" data-t="qr">
+            <div class="ph-qr" id="ph-qr"></div>
+            <ol class="ph-steps">
+              <li>打开手机的<b>开发者选项</b>（只需一次）：设置 → 关于手机 → 连续点「版本号」7 次<small>华为 / 荣耀：设置 → 关于手机 → 版本号；小米：设置 → 我的设备 → 全部参数 → OS 版本</small></li>
+              <li>开发者选项里打开 <b>无线调试</b>，勾上「始终允许在此网络上使用」<small>华为 / 荣耀的开发者选项在「系统和更新」里</small></li>
+              <li>点 <b>使用二维码配对设备</b>，扫上面的码，几秒后自动连上</li>
+            </ol>
+            <p class="ph-note">只要配对一次。以后手机在这个 Wi-Fi 里开着无线调试，Bot 会自己连上，点「投屏」就行。</p>
+          </div>
+          <div class="ph-tab" data-t="ip" hidden>
+            <div class="ph-form">
+              <div class="ph-form-h">使用配对码配对<small>扫不了码时用：无线调试 → 使用配对码配对设备，把弹窗里的 IP 地址和端口、配对码填进来</small></div>
+              <div class="ph-row"><input class="input" id="ph-pair-addr" placeholder="IP 地址和端口，如 192.168.1.23:37215" spellcheck="false"><input class="input ph-code" id="ph-pair-code" placeholder="6 位配对码" maxlength="6" inputmode="numeric"></div>
+              <button class="btn btn-sm" id="ph-pair-go">配对并连接</button>
+            </div>
+            <div class="ph-form">
+              <div class="ph-form-h">直接连接<small>配对过的手机：填「无线调试」页面上方显示的 IP 地址和端口</small></div>
+              <div class="ph-row"><input class="input" id="ph-addr" placeholder="如 192.168.1.23:41235" spellcheck="false"><button class="btn btn-sm" id="ph-connect">连接</button></div>
+              <div id="ph-known"></div>
+            </div>
+          </div>
+          <div class="ph-tab" data-t="usb" hidden>
+            <p class="ph-note" style="margin-top:0">Android 10 及以前、部分鸿蒙 2–4 的手机开发者选项里没有「无线调试」。这种手机需要<b>插一次数据线</b>打开无线端口，之后拔掉线一直用 Wi-Fi（手机重启后要再插一次）：</p>
+            <ol class="ph-steps" style="margin-top:10px">
+              <li>开发者选项里打开 <b>USB 调试</b><small>小米还要打开「USB 调试（安全设置）」</small></li>
+              <li>插上数据线，手机上弹出「允许 USB 调试吗？」点<b>允许</b></li>
+              <li>上面出现手机后，点它的<b>「切换到无线」</b>，然后拔掉数据线</li>
+            </ol>
+            <p class="ph-note">纯血鸿蒙（HarmonyOS NEXT / 5）不兼容安卓调试，暂时不支持。</p>
+          </div>
+        </div>
+
+        <div class="ph-h">iPhone / iPad</div>
+        <div class="ph-card ph-ios" id="ph-ios"></div>
+
+        <div class="ph-h">投屏设置<small>下次投屏生效（置顶马上生效）</small></div>
+        <div class="ph-card ph-settings" id="ph-settings"></div>
+
+        <div class="ph-h">投屏窗口里的小技巧</div>
+        <ul class="ph-tips">
+          <li><kbd>右键</kbd> 返回，<kbd>中键</kbd> 回到桌面，滚轮上下滑动</li>
+          <li>把文件<b>拖进窗口</b>就传到手机的 Download 文件夹；拖 APK 进去是安装</li>
+          <li>点一下手机里的输入框，就能用<b>电脑的输入法直接打字，中文也行</b></li>
+          <li>手机上复制的文字，电脑上直接能粘贴；电脑上复制后在窗口里按 <kbd>Ctrl+V</kbd> 粘贴到手机</li>
+          <li><kbd>Alt+F</kbd> 全屏，<kbd>Alt+R</kbd> 横竖屏，<kbd>Alt+O</kbd> 手机熄屏（电脑上照常用），<kbd>Alt+Shift+O</kbd> 亮屏</li>
+          <li>窗口旁边的工具条：截图（自动复制）、音量、锁屏、置顶，以及<b>让 Bot 操作手机</b></li>
+        </ul>
+        <p class="ph-foot" id="ph-foot"></p>
+      </div>
+    </div>
   </section>
 
   <main id="scroll">

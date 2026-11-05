@@ -46,6 +46,11 @@ class Config:
     check_updates: bool = True
     api_credit: dict = field(default_factory=dict)
     extra_mcp_servers: dict = field(default_factory=dict)
+    phone_audio: bool = True
+    phone_screen_off: bool = False
+    phone_on_top: bool = False
+    phone_max_size: int = 0
+    phone_keyboard: str = "sdk"
 
     @property
     def work_dir(self) -> str:

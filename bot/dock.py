@@ -90,6 +90,11 @@ gdi32.SelectObject.argtypes = [wt.HDC, wt.HGDIOBJ]
 gdi32.SelectObject.restype = wt.HGDIOBJ
 gdi32.DeleteObject.argtypes = [wt.HGDIOBJ]
 gdi32.CreateCompatibleDC.restype = wt.HDC
+# 句柄一律按 64 位传：shellicon 把 GetDC 的返回值设成了 HDC，大于 2^31 的句柄不声明类型会报「int too long to convert」
+gdi32.CreateCompatibleDC.argtypes = [wt.HDC]
+user32.GetDC.restype = wt.HDC
+user32.GetDC.argtypes = [wt.HWND]
+user32.ReleaseDC.argtypes = [wt.HWND, wt.HDC]
 gdi32.DeleteDC.argtypes = [wt.HDC]
 
 

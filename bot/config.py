@@ -42,6 +42,7 @@ class Config:
     fluid_color: str = "#af52de"
     fluid_opacity: float = 0.8
     avatar_size: int = 180
+    island: bool = True
     load_user_settings: bool = True
     check_updates: bool = True
     api_credit: dict = field(default_factory=dict)

@@ -19,7 +19,7 @@ from pathlib import Path
 
 from .tools import desktop  # 先导入：设置 DPI 感知
 from .tools import phone as phone_tools
-from . import dock, fileindex, phone, shellicon, sop, suggest, updater, usage
+from . import dock, fileindex, island, phone, shellicon, sop, suggest, updater, usage
 from .agent import BotSession
 from .brand import make_icon
 from . import __version__
@@ -93,7 +93,7 @@ class Api:
                 "hotkey": cfg.hotkey, "search_hotkey": cfg.search_hotkey, "autostart": STARTUP_LINK.exists(),
                 "busy": self._app.bot.busy if self._app.bot else False,
                 "version": __version__, "update": self._app.update_info,
-                "pinned": self._app.pinned, "nickname": cfg.nickname,
+                "pinned": self._app.pinned, "nickname": cfg.nickname, "island": cfg.island,
                 "look": {"fluid_color": cfg.fluid_color, "fluid_opacity": cfg.fluid_opacity,
                          "avatar_size": cfg.avatar_size}}
 
@@ -104,6 +104,14 @@ class Api:
         cfg.save_keys(fluid_color=f'"{color}"', fluid_opacity=round(float(look.get("fluid_opacity", 0.8)), 2),
                       avatar_size=int(look.get("avatar_size", 180)))
         cfg.fluid_color = color  # 文件里带引号（# 开头的颜色在 YAML 里要引起来），内存里不带
+
+    def set_island(self, on: bool):
+        """顶部灵动岛开关。"""
+        app = self._app
+        app.cfg.save_keys(island=bool(on))
+        if app.island:
+            app.island.set_enabled(bool(on))
+        return app.cfg.island
 
     def check_update(self):
         return self._app.check_update()
@@ -355,6 +363,7 @@ class BotApp:
         self._suggesting = False
         self._quitting = False
         self.edge: dock.EdgeHandle | None = None
+        self.island: island.Island | None = None
         self._pending: dict[str, asyncio.Future] = {}
         self._events: queue.Queue = queue.Queue()
         self.tray: pystray.Icon | None = None
@@ -374,6 +383,8 @@ class BotApp:
 
     def emit(self, ev: dict) -> None:
         self._events.put(ev)
+        if self.island:
+            self.island.on_event(ev)
         if ev["type"] == "status" and ev["state"] == "idle":
             if self.auto_hidden:
                 self.auto_hidden = False
@@ -639,6 +650,8 @@ class BotApp:
 
     def _before_pointer(self, x: int, y: int) -> None:
         """Bot 要点击的位置被面板挡住时，先把面板收起来，任务结束后自动恢复。"""
+        if self.island:
+            self.island.avoid(x, y)  # 灵动岛挡着也先藏起来
         if not (self.visible and self.hwnd):
             return
         l, t, r, b = win32gui.GetWindowRect(self.hwnd)
@@ -946,6 +959,8 @@ class BotApp:
             pass
         if self.tray:
             self.tray.stop()
+        if self.island:
+            self.island.close()
         # 保险：窗口关了但进程卡在退出阶段时强制结束，否则更新安装程序会一直等它
         threading.Timer(5, lambda: os._exit(0)).start()
         self.window.destroy()
@@ -966,6 +981,14 @@ class BotApp:
         )
         self.window.events.closing += self._on_closing
         self.edge = dock.EdgeHandle()
+        try:  # 顶部灵动岛（液态玻璃）；出问题不影响面板
+            self.island = island.Island(
+                {"panel": lambda: self.show(True), "search": self.open_search, "phone": self.open_phone,
+                 "stop": lambda: self.submit(self.bot.interrupt())},
+                panel_visible=lambda: self.visible)
+            self.island.set_enabled(self.cfg.island)
+        except Exception as e:
+            print("灵动岛启动失败：", e)
         self.window.events.shown += lambda: threading.Thread(target=self._on_shown, daemon=True).start()
         threading.Thread(target=self._pump, daemon=True, name="ui-pump").start()
         self.submit(self.bot.start())

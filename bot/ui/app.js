@@ -340,6 +340,7 @@
       '-', { header: '外观' },
       ...Object.entries(THEMES).map(([k, v]) => ({ label: v, checked: k === theme, run: () => { try { localStorage.setItem('theme', k); } catch (e) {} applyTheme(); } })),
       { label: '墨迹颜色与形象大小…', run: openLook },
+      { label: '顶部灵动岛', hint: '液态玻璃', checked: state.island, run: async () => { state.island = await api.set_island(!state.island); toast(state.island ? '已打开灵动岛' : '已关闭灵动岛'); } },
       '-',
       { label: '开机自动启动', checked: state.autostart, run: async () => { state.autostart = await api.set_autostart(!state.autostart); toast(state.autostart ? '已开启开机自启' : '已关闭开机自启'); } },
       '-', { header: '截图与识字' },

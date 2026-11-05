@@ -54,6 +54,9 @@ fluid_color: "#af52de"
 fluid_opacity: 0.8
 avatar_size: 180
 
+# 屏幕顶部正中的灵动岛（液态玻璃）：Bot 干活的进度、正在播放的音乐、快捷入口。设置菜单里也能开关
+island: true
+
 # 手机投屏（面板标题栏的「手机」按钮；这些在那个页面的设置里也能改）
 #   phone_audio：手机声音从电脑播放    phone_screen_off：投屏时手机自己熄屏（省电、防偷看，电脑上照常操作）
 #   phone_on_top：投屏窗口置顶          phone_max_size：画面最长边像素（0 = 原画，卡的话改 1280 或 1024）

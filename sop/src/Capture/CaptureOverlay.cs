@@ -11,7 +11,7 @@ using MySOP.Core;
 
 namespace MySOP.Capture
 {
-    public enum CaptureMode { Normal, Ocr }
+    public enum CaptureMode { Normal, Ocr, Record }
 
     enum Tool { None, Rect, Ellipse, Arrow, Pen, Mosaic, Text }
 
@@ -34,6 +34,10 @@ namespace MySOP.Capture
         public bool Separator;
         public Color? Swatch;
         public int WidthLevel = -1;
+        public int Width;          // 0 = 方形按钮
+        public string Label;       // 图标右边的文字（录屏工具栏用）
+        public bool Danger;        // 红底白字（开始录制）
+        public Func<bool> IsOn;    // 开关按钮：开着时高亮
     }
 
     /// <summary>
@@ -78,6 +82,9 @@ namespace MySOP.Capture
         Point textPos;
 
         readonly List<ToolButton> buttons = new List<ToolButton>();
+        /// <summary>录屏模式：选好区域、点「开始录制」后触发（屏幕坐标）。</summary>
+        public event Action<Rectangle> RecordRequested;
+        bool recordAudio = Host.Config.Section("record").Bool("audio", true);
         Rectangle toolbarRect, subbarRect;
         ToolButton hoverButton;
         Rectangle lastDirty;
@@ -167,14 +174,17 @@ namespace MySOP.Capture
 
                 using (var pen = new Pen(Theme.Accent, Math.Max(1, (int)(1.5f * scale))))
                     g.DrawRectangle(pen, bright.X, bright.Y, bright.Width - 1, bright.Height - 1);
-                if (hasSel && mode == CaptureMode.Normal)
+                if (hasSel && mode != CaptureMode.Ocr)
                     foreach (var h in Handles()) { g.FillRectangle(Brushes.White, h); using (var p = new Pen(Theme.Accent)) g.DrawRectangle(p, h); }
                 DrawSizeLabel(g, bright);
             }
 
-            if (hasSel && mode == CaptureMode.Normal && drag != DragKind.Creating && drag != DragKind.Resizing && drag != DragKind.Moving) DrawToolbar(g);
+            if (hasSel && mode != CaptureMode.Ocr && drag != DragKind.Creating && drag != DragKind.Resizing && drag != DragKind.Moving) DrawToolbar(g);
             if (ShowMagnifier()) DrawMagnifier(g);
             if (mode == CaptureMode.Ocr) DrawHint(g, "框选要识别文字的区域（单击可选中窗口）· Esc 取消");
+            if (mode == CaptureMode.Record)
+                DrawHint(g, hasSel ? "拖动边框或手柄调整录屏框 · Enter 开始录制 · 右键重选 · Esc 取消"
+                                   : "框选要录制的区域（单击选中窗口，Ctrl+A 整个屏幕）· Esc 取消");
         }
 
         bool ShowMagnifier()
@@ -303,7 +313,7 @@ namespace MySOP.Capture
             buttons.Clear();
             int bs = (int)(34 * scale), gap = (int)(2 * scale), sep = (int)(9 * scale), pad = (int)(5 * scale);
             const string mdl = "Segoe MDL2 Assets";
-            var defs = new List<ToolButton>
+            var defs = mode == CaptureMode.Record ? RecordToolbar() : new List<ToolButton>
             {
                 new ToolButton { Glyph = "", GlyphFont = mdl, Tip = "矩形", Tool = Tool.Rect },
                 new ToolButton { Glyph = "", GlyphFont = mdl, Tip = "椭圆", Tool = Tool.Ellipse },
@@ -322,7 +332,7 @@ namespace MySOP.Capture
                 new ToolButton { Glyph = "", GlyphFont = mdl, Tip = "复制  Enter / Ctrl+C / 双击", Click = () => Finish(FinishAction.Copy) },
             };
             int w = pad * 2, h = bs + pad * 2;
-            foreach (var d in defs) w += (d.Separator ? sep : bs) + gap;
+            foreach (var d in defs) w += BtnW(d, bs, sep) + gap;
             w -= gap;
 
             var mon = monitors.FirstOrDefault(m => m.IntersectsWith(sel) && m.Contains(new Point(sel.Right - 1, sel.Bottom - 1)));
@@ -338,7 +348,7 @@ namespace MySOP.Capture
             int cx = x + pad;
             foreach (var d in defs)
             {
-                int bw = d.Separator ? sep : bs;
+                int bw = BtnW(d, bs, sep);
                 d.Bounds = new Rectangle(cx, y + pad, bw, bs);
                 cx += bw + gap;
                 buttons.Add(d);
@@ -364,6 +374,80 @@ namespace MySOP.Capture
                     buttons.Add(new ToolButton { Bounds = new Rectangle(sx, sy + pad, sw, sw), Swatch = c, Tip = "颜色" });
                     sx += sw + gap;
                 }
+            }
+        }
+
+        static int BtnW(ToolButton d, int bs, int sep) { return d.Separator ? sep : d.Width > 0 ? d.Width : bs; }
+
+        List<ToolButton> RecordToolbar()
+        {
+            const string mdl = "Segoe MDL2 Assets";
+            int bs = (int)(34 * scale);
+            Func<string, int> wide = text => bs + TextRenderer.MeasureText(text, uiFont).Width + (int)(12 * scale);
+            return new List<ToolButton>
+            {
+                new ToolButton
+                {
+                    Glyph = recordAudio ? "" : "", GlyphFont = mdl, Label = "电脑声音", Width = wide("电脑声音"),
+                    Tip = recordAudio ? "会录下电脑正在播放的声音（点击关闭）" : "不录声音（点击打开）",
+                    IsOn = () => recordAudio, Click = ToggleRecordAudio
+                },
+                new ToolButton { Separator = true },
+                new ToolButton { Glyph = "", GlyphFont = mdl, Tip = "整个屏幕  Ctrl+A", Click = SelectMonitorUnderMouse },
+                new ToolButton { Glyph = "", GlyphFont = mdl, Tip = "退出  Esc", Click = Close },
+                new ToolButton { Glyph = "", GlyphFont = mdl, Label = "开始录制", Width = wide("开始录制"), Danger = true,
+                                 Tip = "开始录制  Enter / 双击（再按 Ctrl+F1 停止）", Click = StartRecord },
+            };
+        }
+
+        void ToggleRecordAudio()
+        {
+            recordAudio = !recordAudio;
+            Host.Config.Section("record").Set("audio", recordAudio);
+            Host.Config.Save();
+            LayoutToolbar();
+        }
+
+        void SelectMonitorUnderMouse()
+        {
+            var mon = monitors.FirstOrDefault(m => m.Contains(mouse));
+            if (mon.IsEmpty) mon = monitors[0];
+            sel = mon;
+            hasSel = true; hover = null; drag = DragKind.None;
+            LayoutToolbar(); Invalidate(); lastDirty = Rectangle.Empty;
+        }
+
+        void StartRecord()
+        {
+            if (!hasSel) return;
+            var r = Rectangle.Intersect(sel, ClientRectangle);
+            if (r.Width < 32 || r.Height < 32) { Host.Notify("录屏框太小了", "至少 32 × 32 像素"); return; }
+            r = ToScreenRect(r);
+            Host.Log("录屏区域 " + r + " 声音：" + recordAudio);
+            Hide();
+            var h = RecordRequested;
+            if (h != null) h(r);
+            Close();
+        }
+
+        void DrawLabelButton(Graphics g, ToolButton bt, bool active)
+        {
+            var r = bt.Bounds;
+            if (bt.Danger)
+                using (var p = Theme.RoundRect(r, 6 * scale))
+                using (var b = new SolidBrush(bt == hoverButton ? Color.FromArgb(225, 45, 35) : Color.FromArgb(255, 59, 48)))
+                    g.FillPath(b, p);
+            Color fg = bt.Danger ? Color.White : active ? Theme.Accent : Theme.SubText;
+            var sfL = new StringFormat { Alignment = StringAlignment.Near, LineAlignment = StringAlignment.Center };
+            float gx = r.X + 8 * scale, gw = 20 * scale;
+            using (var b = new SolidBrush(fg))
+            {
+                g.DrawString(bt.Glyph, glyphFont, b, new RectangleF(gx, r.Y, gw + 4 * scale, r.Height), sfL);
+                var hint = g.TextRenderingHint;
+                g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+                using (var f = new Font(Theme.FontName, 13 * scale, bt.Danger ? FontStyle.Bold : FontStyle.Regular, GraphicsUnit.Pixel))
+                    g.DrawString(bt.Label, f, b, new RectangleF(gx + gw + 2 * scale, r.Y, r.Right - gx - gw, r.Height), sfL);
+                g.TextRenderingHint = hint;
             }
         }
 
@@ -393,12 +477,13 @@ namespace MySOP.Capture
                     continue;
                 }
                 bool active = (bt.Tool != Tool.None && bt.Tool == tool) || (bt.WidthLevel >= 0 && bt.WidthLevel == widthLevel) ||
-                              (bt.Swatch.HasValue && bt.Swatch.Value.ToArgb() == color.ToArgb());
-                if (active || bt == hoverButton)
+                              (bt.Swatch.HasValue && bt.Swatch.Value.ToArgb() == color.ToArgb()) || (bt.IsOn != null && bt.IsOn());
+                if (!bt.Danger && (active || bt == hoverButton))
                     using (var p = Theme.RoundRect(r, 6 * scale))
                     using (var b = new SolidBrush(active ? Color.FromArgb(40, Theme.Accent) : Color.FromArgb(18, 0, 0, 0)))
                         g.FillPath(b, p);
 
+                if (bt.Label != null) { DrawLabelButton(g, bt, active); continue; }
                 if (bt.Swatch.HasValue)
                 {
                     var sr = RectangleF.Inflate(r, -6 * scale, -6 * scale);
@@ -545,7 +630,7 @@ namespace MySOP.Capture
             if (e.Button != MouseButtons.Left) return;
             CommitText();
 
-            if (hasSel && mode == CaptureMode.Normal)
+            if (hasSel && mode != CaptureMode.Ocr)
             {
                 var bt = buttons.FirstOrDefault(b => !b.Separator && b.Bounds.Contains(e.Location));
                 if (bt != null) { OnButton(bt); return; }
@@ -676,7 +761,10 @@ namespace MySOP.Capture
         {
             base.OnMouseDoubleClick(e);
             if (e.Button == MouseButtons.Left && hasSel && tool == Tool.None && sel.Contains(e.Location) && !toolbarRect.Contains(e.Location))
-                Finish(FinishAction.Copy);
+            {
+                if (mode == CaptureMode.Record) StartRecord();
+                else Finish(FinishAction.Copy);
+            }
         }
 
         protected override void OnMouseWheel(MouseEventArgs e)
@@ -692,7 +780,7 @@ namespace MySOP.Capture
         {
             if (textBox != null) { CommitText(); return; }
             if (drag != DragKind.None) return;
-            if (hasSel && mode == CaptureMode.Normal)
+            if (hasSel && mode != CaptureMode.Ocr)
             {
                 hasSel = false; shapes.Clear(); tool = Tool.None; toolbarRect = subbarRect = Rectangle.Empty;
                 UpdateHover(); Invalidate(); lastDirty = Rectangle.Empty; UpdateCursor();
@@ -763,6 +851,19 @@ namespace MySOP.Capture
                 if (keyData == Keys.Escape || keyData == (Keys.Control | Keys.Enter)) { CommitText(); return true; }
                 return base.ProcessCmdKey(ref msg, keyData);
             }
+            if (mode == CaptureMode.Record)
+            {
+                switch (keyData)
+                {
+                    case Keys.Escape: Close(); return true;
+                    case Keys.Enter: StartRecord(); return true;
+                    case Keys.Control | Keys.A: SelectMonitorUnderMouse(); return true;
+                    case Keys.Left: case Keys.Right: case Keys.Up: case Keys.Down:
+                    case Keys.Shift | Keys.Left: case Keys.Shift | Keys.Right: case Keys.Shift | Keys.Up: case Keys.Shift | Keys.Down:
+                        Nudge(keyData); return true;
+                }
+                return base.ProcessCmdKey(ref msg, keyData);
+            }
             switch (keyData)
             {
                 case Keys.Escape: Close(); return true;
@@ -829,7 +930,7 @@ namespace MySOP.Capture
             }
             if (current != null) r = r.IsEmpty ? ShapeBounds(current, scale) : Rectangle.Union(r, ShapeBounds(current, scale));
             if (ShowMagnifier()) { var m = MagnifierRect(); m.Inflate(4, 4); r = r.IsEmpty ? m : Rectangle.Union(r, m); }
-            if (mode == CaptureMode.Ocr) r = r.IsEmpty ? HintRect() : Rectangle.Union(r, HintRect());
+            if (mode != CaptureMode.Normal) r = r.IsEmpty ? HintRect() : Rectangle.Union(r, HintRect());
             var all = lastDirty.IsEmpty ? r : Rectangle.Union(lastDirty, r);
             if (!all.IsEmpty) Invalidate(all);
             lastDirty = r;

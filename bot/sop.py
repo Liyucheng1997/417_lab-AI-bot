@@ -62,7 +62,7 @@ def start(*command: str) -> None:
 
 
 def send(cmd: str) -> None:
-    """执行 SOP 命令：capture / pin / ocr / ocr-clipboard / hotkeys / reload / quit …"""
+    """执行 SOP 命令：capture / record / pin / ocr / ocr-clipboard / hotkeys / reload / quit …"""
     hwnd = win32gui.FindWindow(None, SOP_WINDOW)
     if hwnd:
         _send_copydata(hwnd, cmd)

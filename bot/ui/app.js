@@ -344,6 +344,7 @@
       '-',
       { label: '开机自动启动', checked: state.autostart, run: async () => { state.autostart = await api.set_autostart(!state.autostart); toast(state.autostart ? '已开启开机自启' : '已关闭开机自启'); } },
       '-', { header: '截图与识字' },
+      { label: '打开录屏文件夹', hint: 'Ctrl+F1 录屏', run: () => api.sop_cmd('record-folder') },
       { label: '编辑快捷短语', hint: 'r1 → [1]', run: () => api.sop_cmd('hotstrings-edit') },
       { label: '热键与工作流设置', run: () => api.sop_cmd('edit-config') },
       { label: '热键一览', run: () => api.sop_cmd('hotkeys') },

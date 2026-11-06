@@ -914,6 +914,8 @@ class BotApp:
             return pystray.MenuItem(label, lambda: sop.send(cmd))
         return pystray.Menu(
             item("截图", "capture", ("capture", "hotkeySnip", "F1")),
+            item("录屏（再按一次停止）", "record", ("record", "hotkeyRecord", "ctrl+F1")),
+            item("打开录屏文件夹", "record-folder"),
             item("贴图（剪贴板）", "pin", ("capture", "hotkeyPin", "F3")),
             item("截图识字", "ocr", ("ocr", "hotkeyScreenshot", "win+alt+c")),
             item("识别剪贴板图片", "ocr-clipboard", ("ocr", "hotkeyClipboard", "win+alt+v")),

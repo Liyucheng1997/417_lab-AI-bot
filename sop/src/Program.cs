@@ -21,6 +21,7 @@ namespace MySOP
         static IEnumerable<IModule> BuiltinModules()
         {
             yield return new CaptureModule();
+            yield return new RecordModule();
             yield return new OcrModule();
             yield return new HotstringModule();
             yield return new WorkflowModule();
@@ -152,7 +153,37 @@ namespace MySOP
                 finally { engine.Dispose(); }
             }
 
-            // 4. 截图遮罩渲染（不显示窗口，渲染成图片供检查）
+            // 4. 录屏：--record <输出.mp4> [秒数]（录主屏幕中间一块 + 电脑声音）
+            int ri = Array.IndexOf(args, "--record");
+            if (ri >= 0 && ri + 1 < args.Length)
+            {
+                int secs = 3;
+                if (ri + 2 < args.Length) int.TryParse(args[ri + 2], out secs);
+                var pb = Screen.PrimaryScreen.Bounds;
+                var region = args.Contains("--full") ? pb : new Rectangle(pb.X + pb.Width / 4, pb.Y + pb.Height / 4, pb.Width / 2 + 1, pb.Height / 2 + 1);
+                try
+                {
+                    var rec = new MySOP.Record.ScreenRecorder(region, Path.GetFullPath(args[ri + 1]), 30, !args.Contains("--no-audio"), true);
+                    var done = new ManualResetEvent(false);
+                    Exception recErr = null;
+                    rec.Finished += (path, dur, err) => { recErr = err; p("录屏结束：" + dur.TotalSeconds.ToString("0.00") + " 秒，" + rec.Frames + " 帧"); done.Set(); };
+                    var sw = Stopwatch.StartNew();
+                    rec.Start();
+                    p("录屏启动 " + sw.ElapsedMilliseconds + " ms，输出 " + rec.OutputSize.Width + "x" + rec.OutputSize.Height +
+                      "，声音：" + (rec.HasAudio ? "有" : "无 " + rec.AudioError));
+                    Thread.Sleep(secs * 1000);
+                    if (args.Contains("--pause-test")) { rec.Paused = true; Thread.Sleep(1000); rec.Paused = false; Thread.Sleep(1000); }
+                    sw.Restart();
+                    rec.Stop();
+                    done.WaitOne(30000);
+                    p("收尾 " + sw.ElapsedMilliseconds + " ms");
+                    check(recErr == null && File.Exists(rec.OutputPath) && new FileInfo(rec.OutputPath).Length > 1000,
+                          "录屏 → " + rec.OutputPath + (recErr != null ? "：" + recErr.Message : ""));
+                }
+                catch (Exception ex) { check(false, "录屏：" + ex); }
+            }
+
+            // 5. 截图遮罩渲染（不显示窗口，渲染成图片供检查）
             int pi = Array.IndexOf(args, "--preview");
             if (pi >= 0 && pi + 1 < args.Length)
             {

@@ -19,7 +19,7 @@ from pathlib import Path
 
 from .tools import desktop  # 先导入：设置 DPI 感知
 from .tools import phone as phone_tools
-from . import dock, fileindex, island, phone, shellicon, sop, suggest, updater, usage
+from . import blog, dock, fileindex, island, phone, shellicon, sop, suggest, updater, usage
 from .agent import BotSession
 from .brand import make_icon
 from . import __version__
@@ -90,7 +90,8 @@ class Api:
         cfg = self._app.cfg
         return {"model": cfg.model, "models": MODELS, "policy": cfg.permission_policy,
                 "policies": POLICIES, "effort": cfg.effort, "efforts": EFFORTS,
-                "hotkey": cfg.hotkey, "search_hotkey": cfg.search_hotkey, "autostart": STARTUP_LINK.exists(),
+                "hotkey": cfg.hotkey, "search_hotkey": cfg.search_hotkey, "note_hotkey": cfg.note_hotkey,
+                "autostart": STARTUP_LINK.exists(),
                 "busy": self._app.bot.busy if self._app.bot else False,
                 "version": __version__, "update": self._app.update_info,
                 "pinned": self._app.pinned, "nickname": cfg.nickname, "island": cfg.island,
@@ -274,6 +275,35 @@ class Api:
         from win32com.shell import shell, shellcon
         shell.ShellExecuteEx(fMask=shellcon.SEE_MASK_INVOKEIDLIST, lpVerb="properties", lpFile=path, nShow=1)
 
+    # ---------------- 随手记（发到 liyucheng.me 博客）
+    def note_status(self):
+        return {**self._app.blog.status(), "draft": self._app.blog.draft()}
+
+    def note_login(self, pin: str):
+        return self._app.blog.login(pin)
+
+    def note_logout(self):
+        self._app.blog.logout()
+
+    def note_recent(self, offset: int = 0, limit: int = 5, refresh: bool = False):
+        return self._app.blog.recent(offset, limit, refresh)
+
+    def note_save(self, post: dict):
+        return self._app.blog.save(post)
+
+    def note_delete(self, pid: str):
+        return self._app.blog.delete(pid)
+
+    def note_draft(self, d: dict | None = None):
+        self._app.blog.set_draft(d)
+
+    def note_open_site(self):
+        import webbrowser
+        webbrowser.open(blog.SITE + "/me.html")
+
+    def set_noting(self, on: bool):
+        self._app._noting = bool(on)
+
     # ---------------- 手机投屏
     def phone_state(self):
         return self._app.phone_state()
@@ -360,6 +390,8 @@ class BotApp:
         self._win_thread.start()
         self._animating = False
         self._searching = False   # 网页里文件搜索开着
+        self._noting = False      # 网页里随手记开着
+        self.blog = blog.Blog()
         self._suggesting = False
         self._quitting = False
         self.edge: dock.EdgeHandle | None = None
@@ -824,6 +856,17 @@ class BotApp:
         else:
             phone.key(serial, action)
 
+    def open_note(self) -> None:
+        """随手记快捷键：叫出面板直接开写；已经在写就收起（草稿会自动保存）。"""
+        def run():
+            if self.visible and self._noting:
+                self._hide()
+                return
+            self.auto_hidden = False
+            self._show(True)
+            self.emit({"type": "note_open"})
+        self._window_op(run)
+
     def open_phone(self) -> None:
         def run():
             self.auto_hidden = False
@@ -934,6 +977,7 @@ class BotApp:
             pystray.MenuItem("新对话", lambda: (self.submit(self.bot.start()), self.window.evaluate_js("bot.clear()"))),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("截图与识字", self._sop_menu(), visible=sop.available()),
+            pystray.MenuItem("随手记", lambda: self.open_note()),
             pystray.MenuItem("手机投屏", lambda: self.open_phone()),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("打开配置文件", lambda: os.startfile(str(CONFIG_PATH))),
@@ -986,6 +1030,7 @@ class BotApp:
         try:  # 顶部灵动岛（液态玻璃）；出问题不影响面板
             self.island = island.Island(
                 {"panel": lambda: self.show(True), "search": self.open_search, "phone": self.open_phone,
+                 "note": self.open_note,
                  "stop": lambda: self.submit(self.bot.interrupt())},
                 panel_visible=lambda: self.visible)
             self.island.set_enabled(self.cfg.island)
@@ -999,6 +1044,9 @@ class BotApp:
         if self.cfg.search_hotkey:
             threading.Thread(target=hotkey_loop, args=(self.cfg.search_hotkey, self.open_search), daemon=True,
                              name="search-hotkey").start()
+        if self.cfg.note_hotkey:
+            threading.Thread(target=hotkey_loop, args=(self.cfg.note_hotkey, self.open_note), daemon=True,
+                             name="note-hotkey").start()
         self.files.start()
         sop.listen(self.on_sop_message)
         sop.start()  # 截图 / OCR / 快捷短语，几百毫秒就绪，不等面板

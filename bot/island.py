@@ -231,7 +231,7 @@ class Spring:
 # ====================================================================== 灵动岛
 class Island:
     def __init__(self, actions: dict, panel_visible=lambda: False):
-        self.actions = actions                # panel / search / phone / stop
+        self.actions = actions                # panel / note / search / phone / stop
         self.panel_visible = panel_visible
         s = self.s = user32.GetDpiForSystem() / 96
         self.dark = _dark()
@@ -364,7 +364,7 @@ class Island:
             return 112, 7, 3.5
         if mode == "compact":
             return self._compact_w(), 34, 17
-        return {"idle_x": (340, 82, 30), "bot_x": (372, 92, 30), "music_x": (372, 128, 32),
+        return {"idle_x": (380, 82, 30), "bot_x": (372, 92, 30), "music_x": (372, 128, 32),
                 "alert": (340, 54, 27), "flash": (300, 44, 22)}[mode]
 
     def _compact_w(self) -> float:
@@ -625,9 +625,9 @@ class Island:
             d.text((ox + 24 * s, oy + 36 * s), t.strftime("%H:%M"), font=self.f_clock, fill=ink, anchor="ls")
             wk = "一二三四五六日"[t.weekday()]
             d.text((ox + 25 * s, oy + 58 * s), f"{t.month}月{t.day}日 周{wk}", font=self.f_small, fill=sub, anchor="ls")
-            for i, (glyph, label, action) in enumerate([("\ue99a", "问 Bot", "panel"), ("\ue721", "搜文件", "search"),
-                                                        ("\ue8ea", "投屏", "phone")]):
-                bx = ox + W - (42 + (2 - i) * 62) * s
+            for i, (glyph, label, action) in enumerate([("\ue99a", "问 Bot", "panel"), ("\ue70f", "随手记", "note"),
+                                                        ("\ue721", "搜文件", "search"), ("\ue8ea", "投屏", "phone")]):
+                bx = ox + W - (40 + (3 - i) * 58) * s
                 self._button(img, bx, oy + 33 * s, 19 * s, glyph, action)
                 d.text((bx, oy + 66 * s), label, font=self.f_tiny, fill=sub, anchor="mm")
         elif mode == "bot_x":

@@ -53,7 +53,7 @@
   let held = false;
   function syncHold() {
     const typing = (el) => document.activeElement === el && !!el.value.trim();
-    const h = !!pop || !!document.querySelector('.viewer') || typing(input) || typing(sInput) || typing($('#ph-text'))
+    const h = !!pop || !!document.querySelector('.viewer') || typing(input) || typing(sInput) || typing($('#ph-text')) || typing($('#nt-text')) || typing($('#nt-title'))
       || (typeof P !== 'undefined' && P.open && !!P.qr);  // 扫码配对时别收起
     if (h !== held && api) { held = h; api.set_hold(h); }
   }
@@ -157,8 +157,9 @@
     session() {},
     shown() { app.classList.remove('enter'); void app.offsetWidth; app.classList.add('enter'); if (window.fluid) fluid.resume(); if (avatar && $('#welcome').style.display !== 'none') avatar.resume(); },
     hidden() { if (window.fluid) fluid.pause(); if (avatar) avatar.pause(); },
-    focus() { if (S.open) sInput.focus(); else if (P.open) { if (document.activeElement !== $('#ph-text')) $('#ph-scroll').focus(); } else input.focus(); },
+    focus() { if (N.open) { if (N.ready) $('#nt-text').focus(); else $('#nt-pin').focus(); } else if (S.open) sInput.focus(); else if (P.open) { if (document.activeElement !== $('#ph-text')) $('#ph-scroll').focus(); } else input.focus(); },
     search_open() { if (P.open) closePhone(); openSearch(); },
+    note_open() { openNote(); },
     phone(ev) {
       if (ev.event === 'error') toast(ev.message, 'error');
       else if (ev.event === 'started') toast(`${ev.name} 已投屏到电脑`, 'success');
@@ -674,6 +675,7 @@
 
   function openSearch() {
     if (P.open) closePhone();
+    if (N.open) closeNote(false);
     if (!S.open) {
       S.open = true; app.classList.add('searching'); renderCats();
       if (api) api.set_searching(true);
@@ -957,6 +959,7 @@
 
   function openPhone(focus) {
     if (S.open) closeSearch();
+    if (N.open) closeNote(false);
     if (!P.open) { P.open = true; app.classList.add('phoning'); }
     phoneRefresh().then(() => {
       phonePoll();
@@ -973,6 +976,236 @@
   $('#ph-close').onclick = closePhone;
   $('#phone').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePhone(); } });
 
+  // ---------------- 随手记（发到 liyucheng.me 博客，和网站 write.html 同一份数据） ----------------
+  const N = { open: false, inited: false, cats: {}, cat: 'think', edit: null, when: null, shown: [], total: 0, more: false, loading: false, busy: false, fresh: null, ready: false };
+  const PAGE = 5;
+  const ntText = $('#nt-text'), ntTitle = $('#nt-title');
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const WEEK = '日一二三四五六';
+  function ntNow() { const d = new Date(); return { date: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`, time: `${pad2(d.getHours())}:${pad2(d.getMinutes())}` }; }
+  function ntDay(date) {
+    const [y, m, d] = String(date).split('-').map(Number);
+    if (!y) return String(date || '');
+    const t = new Date(y, m - 1, d), today = new Date(); today.setHours(0, 0, 0, 0);
+    const diff = Math.round((today - t) / 86400000);
+    if (diff === 0) return '今天';
+    if (diff === 1) return '昨天';
+    return `${y !== today.getFullYear() ? y + '年' : ''}${m}月${d}日`;
+  }
+  function ntRenderWhen() {
+    const w = N.when || ntNow(), [y, m, d] = w.date.split('-').map(Number);
+    const wk = WEEK[new Date(y, m - 1, d).getDay()];
+    $('#nt-when').textContent = `${N.when ? '' : '现在 · '}${m}月${d}日 周${wk}${w.time ? ' · ' + w.time : ''}`;
+  }
+  function ntAutosize() {
+    ntText.style.height = 'auto';
+    ntText.style.height = Math.max(168, ntText.scrollHeight) + 'px';
+  }
+  function ntCount() {
+    const n = ntText.value.trim().length;
+    $('#nt-count').textContent = n ? `${n} 字` : '';
+    $('#nt-pub').disabled = !n || N.busy || !N.ready;
+  }
+  function ntRenderCats() {
+    $('#nt-cats').innerHTML = Object.entries(N.cats).map(([k, v]) => `<button class="nt-cat${k === N.cat ? ' on' : ''}" data-k="${k}">${esc(v)}</button>`).join('');
+  }
+  function ntShowTitle(on, focus) {
+    ntTitle.hidden = !on; $('#nt-add-title').classList.toggle('on', on);
+    if (on && focus) ntTitle.focus();
+  }
+
+  // 草稿：停笔半秒就存到 data/note_draft.json，收起面板、退出 Bot 都不会丢
+  let ntDraftTimer = null;
+  const ntSaved = (t) => { $('#nt-saved').textContent = t; };
+  function ntDraftNow() {
+    clearTimeout(ntDraftTimer); ntDraftTimer = null;
+    if (!api) return;
+    const d = { text: ntText.value, title: ntTitle.value, cat: N.cat, when: N.when, edit: N.edit };
+    api.note_draft(d.text.trim() || d.title.trim() ? d : null);
+    ntSaved(d.text.trim() ? '草稿已保存' : '');
+  }
+  function ntDraftSoon() { ntSaved(''); clearTimeout(ntDraftTimer); ntDraftTimer = setTimeout(ntDraftNow, 500); }
+
+  function ntFill(p) {
+    N.edit = p ? p.id : null;
+    N.cat = p ? (p.cat in N.cats ? p.cat : 'think') : N.cat;
+    N.when = p ? { date: p.date, time: p.time || '' } : null;
+    ntTitle.value = p ? p.title || '' : '';
+    ntText.value = p ? p.text : '';
+    ntShowTitle(!!(p && p.title));
+    $('#nt-dt').hidden = true;
+    const ed = $('#nt-editing');
+    ed.hidden = !p;
+    if (p) ed.querySelector('span').textContent = `正在修改 ${ntDay(p.date)}${p.time ? ' ' + p.time : ''} 的那条`;
+    $('#nt-pub').textContent = p ? '保存修改' : '发布';
+    ntRenderCats(); ntRenderWhen(); ntAutosize(); ntCount();
+    document.querySelectorAll('.nt-item.editing').forEach((x) => x.classList.remove('editing'));
+    if (p) { const it = document.querySelector(`.nt-item[data-id="${CSS.escape(p.id)}"]`); if (it) it.classList.add('editing'); }
+  }
+
+  function ntItem(p, i) {
+    const cat = N.cats[p.cat] || '';
+    return `<div class="nt-item${p.id === N.fresh ? ' fresh' : ''}${p.id === N.edit ? ' editing' : ''}" data-id="${esc(p.id)}" style="animation-delay:${Math.min(i, 6) * 30}ms">
+      <div class="nt-meta"><b>${esc(ntDay(p.date))}</b>${p.time ? `<span>${esc(p.time)}</span>` : ''}${cat ? `<span>· ${esc(cat)}</span>` : ''}
+        <span class="nt-ops"><button data-a="edit">修改</button><button class="del" data-a="del">删除</button></span></div>
+      ${p.title ? `<h4>${esc(p.title)}</h4>` : ''}
+      <p>${esc(p.text)}</p><span class="nt-fold">展开全文</span></div>`;
+  }
+  function ntRenderList() {
+    const box = $('#nt-list');
+    if (!N.shown.length) {
+      box.innerHTML = N.loading ? '<div class="nt-skel"></div><div class="nt-skel"></div><div class="nt-skel"></div>' : '<div class="nt-empty">还没写过东西，第一条就从现在开始吧。</div>';
+    } else {
+      box.innerHTML = N.shown.map(ntItem).join('');
+      ntMarkLong();
+    }
+    $('#nt-total').textContent = N.total ? `共 ${N.total} 条` : '';
+    $('#nt-more').hidden = !N.more;
+  }
+  function ntMarkLong() {
+    $('#nt-list').querySelectorAll('.nt-item:not(.open)').forEach((it) => { const p = it.querySelector('p'); it.classList.toggle('long', p.scrollHeight > p.clientHeight + 2); });
+  }
+  async function ntLoad(reset, refresh) {
+    if (N.loading || !api) return;
+    N.loading = true;
+    if (reset && !N.shown.length) ntRenderList();  // 第一次显示骨架，之后刷新时旧列表先留着
+    const btn = $('#nt-more'); btn.disabled = true;
+    const r = await api.note_recent(reset ? 0 : N.shown.length, PAGE, !!refresh);
+    N.loading = false; btn.disabled = false;
+    if (!r.ok) {
+      if (reset) $('#nt-list').innerHTML = `<div class="nt-empty err">${esc(r.error)}<br><a id="nt-retry" style="cursor:pointer">再试一次</a></div>`;
+      else toast(r.error, 'error');
+      const a = $('#nt-retry'); if (a) a.onclick = () => ntLoad(true, true);
+      return;
+    }
+    const seen = new Set(N.shown.map((p) => p.id));
+    N.shown = reset ? r.posts : N.shown.concat(r.posts.filter((p) => !seen.has(p.id)));
+    N.total = r.total; N.more = r.more;
+    ntRenderList();
+  }
+
+  function ntSetLogin(on) {
+    N.ready = on;
+    $('#nt-login').hidden = on;
+    $('#nt-paper').classList.toggle('locked', !on);
+    ntCount();
+    if (!on) setTimeout(() => $('#nt-pin').focus(), 50);
+  }
+  async function ntLogin() {
+    const pin = $('#nt-pin').value.trim(), b = $('#nt-pin-go');
+    if (!pin) return;
+    b.disabled = true; b.textContent = '验证中…';
+    const r = await api.note_login(pin);
+    b.disabled = false; b.textContent = '连接';
+    if (!r.ok) { toast(r.error, 'error'); $('#nt-pin').select(); return; }
+    $('#nt-pin').value = '';
+    toast('已连上 liyucheng.me', 'success');
+    ntSetLogin(true); ntText.focus();
+  }
+  $('#nt-pin-go').onclick = ntLogin;
+  $('#nt-pin').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ntLogin(); } });
+
+  async function ntPublish() {
+    const text = ntText.value.trim();
+    if (!text || N.busy) return;
+    if (!N.ready) { ntSetLogin(false); return; }
+    N.busy = true; const b = $('#nt-pub'); b.classList.add('busy'); ntCount();
+    const w = N.when || {};
+    const r = await api.note_save({ id: N.edit, text, title: ntTitle.value.trim(), cat: N.cat, date: w.date || '', time: N.when ? w.time : null });
+    N.busy = false; b.classList.remove('busy');
+    if (!r.ok) {
+      toast(r.error, 'error'); ntCount();
+      if (r.auth) { await api.note_logout(); ntSetLogin(false); }
+      return;
+    }
+    toast(r.updated ? '已保存修改' : '已发布到 liyucheng.me', 'success');
+    N.fresh = r.post.id;
+    api.note_draft(null); ntSaved('');
+    ntFill(null);
+    await ntLoad(true);
+    ntText.focus();
+  }
+  $('#nt-pub').onclick = ntPublish;
+
+  ntText.addEventListener('input', () => { ntAutosize(); ntCount(); ntDraftSoon(); syncHold(); });
+  ntTitle.addEventListener('input', () => { ntDraftSoon(); syncHold(); });
+  [ntText, ntTitle].forEach((x) => { x.addEventListener('focus', syncHold); x.addEventListener('blur', () => { if (ntDraftTimer) ntDraftNow(); syncHold(); }); });
+  $('#note').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) { e.preventDefault(); ntPublish(); return; }
+    if (e.key === 'Enter' && e.target === ntTitle && !e.isComposing) { e.preventDefault(); ntText.focus(); return; }
+    if (e.key === 'Escape' && !pop) { e.preventDefault(); e.stopPropagation(); closeNote(); }
+  });
+  $('#nt-cats').onclick = (e) => { const c = e.target.closest('.nt-cat'); if (!c) return; N.cat = c.dataset.k; ntRenderCats(); ntDraftSoon(); };
+  $('#nt-add-title').onclick = () => ntShowTitle(ntTitle.hidden, true);
+  $('#nt-when').onclick = () => {
+    const dt = $('#nt-dt'); dt.hidden = !dt.hidden;
+    if (!dt.hidden) { const w = N.when || ntNow(); $('#nt-date').value = w.date; $('#nt-time').value = w.time; $('#nt-date').focus(); }
+  };
+  const ntWhenInput = () => { N.when = { date: $('#nt-date').value || ntNow().date, time: $('#nt-time').value }; ntRenderWhen(); ntDraftSoon(); };
+  $('#nt-date').onchange = ntWhenInput; $('#nt-time').onchange = ntWhenInput;
+  $('#nt-dt-now').onclick = () => { N.when = null; $('#nt-dt').hidden = true; ntRenderWhen(); ntDraftSoon(); ntText.focus(); };
+  $('#nt-cancel').onclick = () => { ntFill(null); api.note_draft(null); ntSaved(''); ntText.focus(); };
+  $('#nt-refresh').onclick = () => ntLoad(true, true);
+  $('#nt-more').onclick = () => ntLoad(false);
+  $('#nt-site').onclick = () => api.note_open_site();
+  $('#nt-list').addEventListener('click', (e) => {
+    const it = e.target.closest('.nt-item'); if (!it) return;
+    const p = N.shown.find((x) => x.id === it.dataset.id); if (!p) return;
+    const a = e.target.closest('[data-a]');
+    if (!a) { if (it.classList.contains('long') || it.classList.contains('open')) { it.classList.toggle('open'); it.querySelector('.nt-fold').textContent = it.classList.contains('open') ? '收起' : '展开全文'; } return; }
+    if (a.dataset.a === 'edit') {
+      const go = () => { ntFill(p); ntDraftNow(); $('#nt-scroll').scrollTop = 0; ntText.focus(); ntText.setSelectionRange(ntText.value.length, ntText.value.length); };
+      if (ntText.value.trim() && N.edit !== p.id) popup(a, [{ header: '输入框里还有没发的内容' }, { label: '替换掉，改这一条', run: go }]);
+      else go();
+    } else if (a.dataset.a === 'del') {
+      popup(a, [{ header: '删除后网站上也会消失' }, { html: '<span class="menu-label" style="color:var(--danger)">删除这一条</span>', run: async () => {
+        const r = await api.note_delete(p.id);
+        if (!r.ok) { toast(r.error, 'error'); if (r.auth) { await api.note_logout(); ntSetLogin(false); } return; }
+        if (N.edit === p.id) ntFill(null);
+        N.shown = N.shown.filter((x) => x.id !== p.id); N.total = Math.max(0, N.total - 1);
+        ntRenderList(); toast('已删除');
+        if (N.shown.length < PAGE && N.more) ntLoad(false);
+      } }]);
+    }
+  });
+
+  async function openNote() {
+    if (S.open) closeSearch();
+    if (P.open) closePhone();
+    N.open = true; app.classList.add('noting');
+    if (api) api.set_noting(true);
+    if (!N.inited) {
+      N.inited = true;
+      const st = await api.note_status();
+      N.cats = st.cats || {};
+      const d = st.draft || {};
+      if (!ntText.value && (d.text || d.title)) {   // 接着上次没写完的
+        N.cat = d.cat in N.cats ? d.cat : N.cat; N.when = d.when || null; N.edit = d.edit || null;
+        ntTitle.value = d.title || ''; ntText.value = d.text || '';
+        ntShowTitle(!!d.title);
+        $('#nt-editing').hidden = !N.edit;
+        if (N.edit) { $('#nt-editing').querySelector('span').textContent = '接着修改上次那条'; $('#nt-pub').textContent = '保存修改'; }
+        ntSaved('草稿已恢复');
+      }
+      ntRenderCats(); ntRenderWhen(); ntAutosize();
+      ntSetLogin(!!st.logged_in);
+    }
+    ntLoad(true);  // 后台缓存两分钟，重复打开很快
+    requestAnimationFrame(ntMarkLong);
+    if (N.ready) { ntText.focus(); const n = ntText.value.length; ntText.setSelectionRange(n, n); }
+    syncHold();
+  }
+  function closeNote(focusInput = true) {
+    if (ntDraftTimer) ntDraftNow();
+    N.open = false; app.classList.remove('noting');
+    if (api) api.set_noting(false);
+    closePop(); syncHold();
+    if (focusInput) input.focus();
+  }
+  $('#btn-note').onclick = () => (N.open ? closeNote() : openNote());
+  $('#nt-close').onclick = () => closeNote();
+  setInterval(() => { if (N.open && !N.when) ntRenderWhen(); }, 30000);
+
   // ---------------- 启动 ----------------
   applyTheme();
   window.addEventListener('pywebviewready', async () => {
@@ -987,6 +1220,7 @@
     loadSuggestions(false);
     handlers.shown();
     if (state.update) handlers.update({ state: 'available', ...state.update });
+    $('#btn-note').title = `随手记：写点笔记和感想，发到 liyucheng.me${state.note_hotkey ? `（${state.note_hotkey.toUpperCase()}）` : ''}`;
     $('#btn-search').title = `搜索文件${state.search_hotkey ? `（${state.search_hotkey.toUpperCase()}）` : ''}`;
     S.index = await api.search_status();
     phoneRefresh();

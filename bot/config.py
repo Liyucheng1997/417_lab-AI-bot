@@ -32,6 +32,7 @@ class Config:
     permission_policy: str = "smart"
     hotkey: str = "ctrl+alt+b"
     search_hotkey: str = "ctrl+alt+f"
+    note_hotkey: str = "ctrl+alt+n"
     search_exclude: list = field(default_factory=list)
     search_extensions: list = field(default_factory=list)
     cwd: str = ""

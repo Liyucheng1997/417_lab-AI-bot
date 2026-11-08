@@ -17,6 +17,9 @@
       <span class="status" id="status"><i></i><span>连接中</span></span>
     </div>
     <div class="actions">
+      <button class="icon-btn" id="btn-note" title="随手记">
+        <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>
+      </button>
       <button class="icon-btn" id="btn-search" title="搜索文件">
         <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>
       </button>
@@ -132,6 +135,52 @@
         </ul>
         <p class="ph-foot" id="ph-foot"></p>
       </div>
+    </div>
+  </section>
+
+  <section id="note" class="note" aria-label="随手记">
+    <div class="nt-top">
+      <div class="ph-title"><b>随手记</b><small>想到什么写什么，发到 liyucheng.me</small></div>
+      <button class="icon-btn" id="nt-close" title="收起（Esc，草稿会自动保存）">
+        <svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="nt-scroll" id="nt-scroll">
+      <div class="nt-login" id="nt-login" hidden>
+        <b>先连上你的博客</b>
+        <p>输入网站后台（blog/write.html）的数字密码，只需要一次，之后存在这台电脑的 Windows 凭据里。</p>
+        <div class="nt-login-row">
+          <input class="input" id="nt-pin" type="password" inputmode="numeric" placeholder="6–10 位数字密码" autocomplete="off">
+          <button class="btn btn-primary btn-sm" id="nt-pin-go">连接</button>
+        </div>
+      </div>
+
+      <div class="nt-paper" id="nt-paper">
+        <div class="nt-editing" id="nt-editing" hidden><span></span><a id="nt-cancel">取消编辑</a></div>
+        <div class="nt-head">
+          <button class="nt-when" id="nt-when" title="改日期和时间"></button>
+          <span class="nt-saved" id="nt-saved"></span>
+        </div>
+        <div class="nt-dt" id="nt-dt" hidden>
+          <input class="input" type="date" id="nt-date"><input class="input" type="time" id="nt-time">
+          <a id="nt-dt-now">用现在</a>
+        </div>
+        <input class="nt-title" id="nt-title" placeholder="标题" maxlength="80" hidden>
+        <textarea class="nt-text" id="nt-text" placeholder="此刻在想什么……" spellcheck="false"></textarea>
+        <div class="nt-foot">
+          <div class="nt-cats" id="nt-cats"></div>
+          <button class="nt-add-title" id="nt-add-title" title="加个标题（可选）">T</button>
+        </div>
+        <div class="nt-bar">
+          <span class="nt-count" id="nt-count"></span>
+          <span class="nt-kbd">Ctrl + Enter</span>
+          <button class="btn btn-primary nt-pub" id="nt-pub">发布</button>
+        </div>
+      </div>
+
+      <div class="nt-recent-h"><span>最近写的</span><small id="nt-total"></small><a id="nt-refresh" title="重新从网站读取">刷新</a></div>
+      <div class="nt-list" id="nt-list"></div>
+      <div class="nt-more"><button class="btn btn-sm" id="nt-more" hidden>再往前看看</button><a id="nt-site">在网站上看全部 ↗</a></div>
     </div>
   </section>
 

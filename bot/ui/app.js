@@ -362,7 +362,7 @@
   // ---------------- 用量：订阅额度 + API ----------------
   const trim = (x) => String(+x.toFixed(x >= 100 ? 0 : 1));
   const fmtTokens = (n) => (n >= 1e8 ? `${trim(n / 1e8)} 亿` : n >= 1e4 ? `${trim(n / 1e4)} 万` : String(n));
-  const fmtUsd = (x) => `$${x.toFixed(2)}`;
+  const fmtUsd = (x) => `$${x.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   function usageSub(sub) {
     if (sub.error) return `<p class="usage-note">${esc(sub.error)}</p>`;
@@ -402,10 +402,60 @@
       <div class="usage-links"><a data-url="billing">去官网充值 ↗</a><a data-url="usage">看详细账单 ↗</a><a id="admin-key-clear" title="删除保存在本机的 Admin API key，之后不再显示 API 用量">删除密钥</a></div>`;
   }
 
+  // 订阅里用掉的 token 按 API 官方价格折算（今天 / 7 天 / 30 天，按模型分开）
+  const RANGES = { today: '今天', '7d': '7 天', '30d': '30 天' };
+  const prefGet = (k, d) => { try { return localStorage.getItem(k) || d; } catch (e) { return d; } };
+  const prefSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+  let usageTab = prefGet('usageTab', 'sub');
+  let usageRange = prefGet('usageRange', 'today');
+  if (!RANGES[usageRange]) usageRange = 'today';
+  let lastUsage = null;
+
+  function usageValue(t) {
+    if (!t) return '';
+    if (t.error) return `<p class="usage-note err">${esc(t.error)}</p>`;
+    const v = t[usageRange];
+    const seg = `<div class="seg seg-sm" id="usage-range">${Object.entries(RANGES).map(([k, label]) =>
+      `<button data-range="${k}" class="${k === usageRange ? 'on' : ''}">${label}</button>`).join('')}</div>`;
+    if (!v.total.msgs) return `${seg}<p class="usage-note">${RANGES[usageRange] === '今天' ? '今天' : '这段时间'}还没有用过 Claude Code。</p>`;
+    const top = Math.max(...v.models.map((m) => m.cost), 0.01);
+    const rows = v.models.map((m) => {
+      const detail = `输入 ${fmtTokens(m.input)} · 输出 ${fmtTokens(m.output)} · 缓存写入 ${fmtTokens(m.cache_write)} · 缓存读取 ${fmtTokens(m.cache_read)} · ${m.msgs} 次调用`;
+      return `<div class="meter model" title="${esc(detail)}"><div class="meter-top"><span>${esc(m.name)}</span><b>${m.priced ? fmtUsd(m.cost) : '价格未知'}</b></div>
+        <div class="meter-bar"><i style="width:${Math.max(1.5, (m.cost / top) * 100)}%"></i></div>
+        <small>${fmtTokens(m.tokens)} token · 输出 ${fmtTokens(m.output)} · 缓存读取 ${fmtTokens(m.cache_read)}</small></div>`;
+    }).join('');
+    let chart = '';
+    if (v.daily) {
+      const max = Math.max(...v.daily.map((d) => d.cost), 0.01);
+      const dense = v.daily.length > 10;
+      const bars = v.daily.map((d, i) => {
+        const tip = `${d.label}：折合 ${fmtUsd(d.cost)}，${fmtTokens(d.tokens)} token` +
+          d.models.map(([n, c, k]) => `\n${n}：${fmtUsd(c)}（${fmtTokens(k)} token）`).join('');
+        const label = !dense || (v.daily.length - 1 - i) % 7 === 0 ? d.label : '';  // 30 天：每周标一个日期
+        return `<div title="${esc(tip)}"><i style="height:${Math.max(d.cost ? 8 : 2, Math.round((d.cost / max) * 100))}%"></i><small>${esc(label)}</small></div>`;
+      }).join('');
+      chart = `<div class="spark-h">每天折合<small>鼠标移到柱子上看各模型</small></div><div class="spark${dense ? ' dense' : ''}">${bars}</div>`;
+    }
+    return `${seg}<div class="value-total"><b>${fmtUsd(v.total.cost)}</b><small>${fmtTokens(v.total.tokens)} token · ${v.total.msgs} 次调用</small></div>
+      ${rows}${chart}
+      <p class="usage-note value-note">按 Anthropic API 官方价格估算（含缓存读写），只是参考：订阅额度内不会另外收费。</p>`;
+  }
+
   function renderUsage(u) {
-    pop.innerHTML = `<div class="usage-sec"><div class="usage-h">Claude 订阅<small>本机 Claude Code</small></div>${usageSub(u.sub)}</div>
-      <div class="usage-sec"><div class="usage-h">API<small>Claude Console</small></div>${usageApi(u.api)}</div>
-      <div class="usage-foot"><span>更新于 ${esc(u.time)}</span><a id="usage-refresh">刷新</a></div>`;
+    lastUsage = u;
+    const tabs = `<div class="seg usage-tabs" id="usage-tabs"><button data-tab="sub" class="${usageTab === 'sub' ? 'on' : ''}">订阅额度</button><button data-tab="api" class="${usageTab === 'api' ? 'on' : ''}">API 额度</button></div>`;
+    const body = usageTab === 'api'
+      ? `<div class="usage-sec"><div class="usage-h">API<small>Claude Console</small></div>${usageApi(u.api)}</div>`
+      : `<div class="usage-sec"><div class="usage-h">Claude 订阅<small>本机 Claude Code</small></div>${usageSub(u.sub)}</div>
+         <div class="usage-sec"><div class="usage-h">折合 API 价格<small>本机所有 Claude Code 会话</small></div>${usageValue(u.tokens)}</div>`;
+    pop.innerHTML = `${tabs}${body}<div class="usage-foot"><span>更新于 ${esc(u.time)}</span><a id="usage-refresh">刷新</a></div>`;
+    pop.querySelectorAll('#usage-tabs button').forEach((b) => b.onclick = () => {
+      usageTab = b.dataset.tab; prefSet('usageTab', usageTab); renderUsage(lastUsage);
+    });
+    pop.querySelectorAll('#usage-range button').forEach((b) => b.onclick = () => {
+      usageRange = b.dataset.range; prefSet('usageRange', usageRange); renderUsage(lastUsage);
+    });
     pop.querySelectorAll('[data-url]').forEach((a) => a.onclick = () => api.open_url(a.dataset.url));
     const refresh = pop.querySelector('#usage-refresh');
     refresh.onclick = () => openUsage(true);

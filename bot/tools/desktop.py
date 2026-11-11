@@ -459,6 +459,31 @@ async def find_files(args):
     return _text("\n".join(lines) + more)
 
 
-ALL_TOOLS = [find_files, screenshot, screen_info, cursor_position, click, move_mouse, drag, scroll, type_text,
+@tool("claude_usage", "查主人的 Claude 订阅额度：5 小时会话、本周额度各用了百分之几、什么时候重置；"
+      "以及本机 Claude Code 今天 / 近 7 天 / 近 30 天各模型（Opus、Fable 等）用了多少 token、按 API 官方价格折合多少美元。"
+      "主人问额度、用量、什么时候重置、花了多少钱时用它。", {})
+async def claude_usage(args):
+    from .. import tokenstats, usage
+    parts = []
+    try:
+        sub = await usage.subscription()
+        if sub.get("error"):
+            parts.append(f"订阅额度：读取失败（{sub['error']}）")
+        else:
+            parts.append("订阅额度（本机 Claude Code /usage）：")
+            parts += [f"  - {w['label']}：已用 {w['pct']:g}%" + (f"，重置于 {w['resets']}" if w["resets"] else "")
+                      for w in sub["windows"]]
+    except Exception as e:
+        parts.append(f"订阅额度：读取失败（{e}）")
+    try:
+        views = await asyncio.to_thread(tokenstats.summary)
+        parts.append("token 用量（按 API 官方价格折算，订阅内不另外收费）：\n" + tokenstats.describe(views))
+    except Exception as e:
+        parts.append(f"token 用量：统计失败（{e}）")
+    parts.append(f"现在时间：{time.strftime('%Y-%m-%d %H:%M')}（本地）")
+    return _text("\n".join(parts))
+
+
+ALL_TOOLS = [find_files, claude_usage, screenshot, screen_info, cursor_position, click, move_mouse, drag, scroll, type_text,
              press_keys, list_windows, focus_window, inspect_window, click_element, get_clipboard,
              set_clipboard, open_target, list_apps, wait, list_processes]

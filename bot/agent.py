@@ -67,6 +67,8 @@ SYSTEM_PROMPT = """
   找主人的文档、照片、视频、音乐、安装包、软件快捷方式时，先用 mcp__desktop__find_files（整机索引，毫秒出结果，按主人习惯排序）；
   代码文件、系统文件不在索引里，用 Glob。
 - 上网：WebSearch / WebFetch。
+- Claude 额度和用量：主人问订阅额度还剩多少、什么时候重置、今天 / 这周用了多少 Opus、Fable 的 token、
+  折合 API 要多少钱时，用 mcp__desktop__claude_usage 查（不耗额度），不要自己去翻会话记录。
 - 操作图形界面（mcp__desktop__* 工具）：
   - screenshot 看屏幕；inspect_window 读取窗口控件（比看图找坐标更准）；
   - click / click_element / type_text / press_keys / scroll / drag 操作鼠标键盘；

@@ -19,7 +19,7 @@ from pathlib import Path
 
 from .tools import desktop  # 先导入：设置 DPI 感知
 from .tools import phone as phone_tools
-from . import blog, dock, fileindex, island, phone, shellicon, sop, suggest, updater, usage
+from . import blog, dock, fileindex, island, phone, shellicon, sop, suggest, tokenstats, updater, usage
 from .agent import BotSession
 from .brand import make_icon
 from . import __version__
@@ -36,6 +36,8 @@ UI_DIR = RES_DIR / "bot" / "ui"
 STARTUP_LINK = Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs/Startup/我的 AI Bot.vbs"
 LAUNCHER = ROOT / "启动 Bot.vbs"
 user32 = ctypes.windll.user32
+user32.GetWindowLongW.argtypes = [ctypes.wintypes.HWND, ctypes.c_int]
+user32.SetWindowLongW.argtypes = [ctypes.wintypes.HWND, ctypes.c_int, ctypes.wintypes.LONG]
 
 
 def launcher_script() -> str:
@@ -485,8 +487,11 @@ class BotApp:
         pref = ctypes.c_int(2)
         ctypes.windll.dwmapi.DwmSetWindowAttribute(self.hwnd, 33, ctypes.byref(pref), 4)
         # 加上最小化按钮样式：任务栏点一下 / Win+D 才能最小化（随后当作收起处理）
-        style = win32gui.GetWindowLong(self.hwnd, win32con.GWL_STYLE)
-        win32gui.SetWindowLong(self.hwnd, win32con.GWL_STYLE, style | win32con.WS_MINIMIZEBOX)
+        # 必须用 ctypes，不能用 win32gui.SetWindowLong：改样式要同步等窗口线程处理 WM_STYLECHANGING，
+        # win32gui 等的时候不放 GIL；开机时 WebView2 初始化慢，窗口线程正好要跑 Python 回调、在等 GIL →
+        # 两边互等，整个程序卡死，面板停在左边一片空白（v1.7 ~ v1.9 开机偶发）。ctypes 调用会先放开 GIL。
+        style = user32.GetWindowLongW(self.hwnd, win32con.GWL_STYLE)
+        user32.SetWindowLongW(self.hwnd, win32con.GWL_STYLE, style | win32con.WS_MINIMIZEBOX)
         self._place(show=True)
         threading.Thread(target=self._keep_on_top, daemon=True, name="on-top").start()
         threading.Thread(target=self._dock_loop, daemon=True, name="dock").start()
@@ -883,10 +888,14 @@ class BotApp:
             sub_future = self.submit(usage.subscription())
             api = usage.api_usage(credit=self.cfg.api_credit)
             try:
+                tokens = tokenstats.summary()  # 本机 token 用量折合 API 价格
+            except Exception as e:
+                tokens = {"error": f"统计 token 用量失败：{e}"}
+            try:
                 sub = sub_future.result(timeout=40)
             except Exception as e:
                 sub = {"error": f"读取订阅用量失败：{e}"}
-            self.usage_cache = {"sub": sub, "api": api,
+            self.usage_cache = {"sub": sub, "api": api, "tokens": tokens,
                                 "ts": time.time(), "time": datetime.now().strftime("%H:%M")}
             return self.usage_cache
 
@@ -1048,6 +1057,7 @@ class BotApp:
             threading.Thread(target=hotkey_loop, args=(self.cfg.note_hotkey, self.open_note), daemon=True,
                              name="note-hotkey").start()
         self.files.start()
+        tokenstats.warm_up(delay=45)  # 第一次要读几个 GB 的会话记录：等开机忙完再在后台读
         sop.listen(self.on_sop_message)
         sop.start()  # 截图 / OCR / 快捷短语，几百毫秒就绪，不等面板
         self._tray()

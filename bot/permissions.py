@@ -11,7 +11,7 @@ READ_ONLY_TOOLS = {
     "mcp__desktop__screenshot", "mcp__desktop__screen_info", "mcp__desktop__list_windows",
     "mcp__desktop__inspect_window", "mcp__desktop__get_clipboard", "mcp__desktop__wait",
     "mcp__desktop__list_processes", "mcp__desktop__cursor_position", "mcp__desktop__list_apps",
-    "mcp__desktop__find_files",
+    "mcp__desktop__find_files", "mcp__desktop__claude_usage",
     "mcp__phone__status", "mcp__phone__screenshot", "mcp__phone__inspect", "mcp__phone__list_apps",
 }
 

@@ -62,6 +62,18 @@ body { background: var(--bg); }
 .spark i { align-self: end; border-radius: 3px 3px 1px 1px; background: linear-gradient(180deg, #ff9500, #ffcc00); opacity: 0.9; }
 .spark div:last-child i { opacity: 1; }
 .spark small { font-size: 10px; text-align: center; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.usage-tabs { margin: 8px 0 2px; }
+.seg.seg-sm { margin-bottom: 10px; }
+.seg.seg-sm button { height: 24px; font-size: 11.5px; }
+.value-total { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+.value-total b { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.value-total small { font-size: 11.5px; color: var(--text-3); }
+.meter.model { margin-bottom: 10px; cursor: default; }
+.meter.model .meter-bar { height: 4px; }
+.meter.model .meter-bar i { background: linear-gradient(90deg, #ffcc00, #ff9500); }
+.spark.dense { gap: 2px; }
+.spark.dense small { justify-self: center; white-space: nowrap; }
+.value-note { margin: 2px 0 0; font-size: 11px; color: var(--text-3); }
 .usage-links, .usage-foot { display: flex; gap: 14px; font-size: 12px; }
 .usage-foot { justify-content: space-between; padding-top: 9px; color: var(--text-3); }
 .usage-pop a { color: var(--accent-text); cursor: pointer; text-decoration: none; }

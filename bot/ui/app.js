@@ -497,7 +497,13 @@
     const r = await api.check_update();
     if (r.error) toast(r.error, 'error');
     else if (!r.available) toast(`已是最新版本 v${r.current}`, 'success');
-    // 有新版本时 Python 会推 update 事件，显示提示条
+    else {
+      // Python 会推 update 事件显示提示条；提示条在随手记 / 搜索 / 手机界面下是藏起来的，先回到主界面
+      if (N.open) closeNote(false);
+      if (S.open) closeSearch();
+      if (P.open) closePhone();
+      toast(`发现新版本 v${r.version}，点上方「立即更新」`, 'success');
+    }
   }
   $('#btn-update').onclick = () => {
     if (busy) { toast('等当前任务做完再更新，或先点停止'); return; }

@@ -152,7 +152,28 @@ begin
   Result := WaitForBotExit(IsUpdate or WizardSilent);
 end;
 
+// 手机投屏用过之后，adb 服务（安装目录 phone\scrcpy\adb.exe）会在 Bot 退出后继续常驻，
+// 重启管理器关不掉它，静默更新就会直接放弃。装 / 卸之前先结束这个目录里的 adb（别人装的 adb 不碰）。
+procedure StopBundledAdb(Dir: String);
+var
+  Code: Integer;
+begin
+  Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+       '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Get-Process adb -ErrorAction SilentlyContinue | ' +
+       'Where-Object { $_.Path -like ''' + AddBackslash(Dir) + '*'' } | Stop-Process -Force"',
+       '', SW_HIDE, ewWaitUntilTerminated, Code);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  { 在重启管理器检查占用文件之前调用 }
+  StopBundledAdb(ExpandConstant('{app}'));
+  Result := '';
+end;
+
 function InitializeUninstall: Boolean;
 begin
   Result := WaitForBotExit(UninstallSilent);
+  if Result then
+    StopBundledAdb(ExpandConstant('{app}'));
 end;

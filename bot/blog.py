@@ -21,8 +21,29 @@ from .config import DATA_DIR
 SITE = "https://liyucheng.me"
 CRED_TARGET = "MyAIBot/BlogPin"
 DRAFT_PATH = DATA_DIR / "note_draft.json"
-CATS = {"think": "个人思考", "read": "读书笔记", "research": "科研心得", "learn": "学习方法", "lang": "语言学习"}
+CATS_PATH = DATA_DIR / "blog_cats.json"  # 上次从网站拿到的分类，断网时用
+# 分类以网站上的 blog/cats.json 为准（网站加了标签，Bot 下次启动自动跟上）；拿不到时先用上次存的，再不行用这份
+CATS = {"think": "个人思考", "read": "读书笔记", "research": "科研心得", "learn": "学习方法", "lang": "语言学习",
+        "film": "观影感受"}
 CACHE_S = 120  # 两分钟内再打开直接用缓存（别处写了的话点刷新）
+
+
+def _parse_cats(d) -> dict:
+    """{"think": {"zh": "个人思考", "en": ...}} 或 {"think": "个人思考"} → {"think": "个人思考"}"""
+    out = {}
+    if isinstance(d, dict):
+        for k, v in d.items():
+            name = v.get("zh") if isinstance(v, dict) else v
+            if isinstance(k, str) and k and isinstance(name, str) and name.strip():
+                out[k] = name.strip()
+    return out
+
+
+def _saved_cats() -> dict:
+    try:
+        return _parse_cats(json.loads(CATS_PATH.read_text(encoding="utf-8")))
+    except Exception:
+        return {}
 
 
 # ------------------------------------------------------------------ 数字密码（Windows 凭据管理器）
@@ -97,10 +118,29 @@ class Blog:
         self._posts: list | None = None  # 服务器上的原始顺序（新的在前）
         self._at = 0.0
         self._lock = threading.Lock()
+        self.cats = _saved_cats() or dict(CATS)
+        self._cats_ready = threading.Event()
+        threading.Thread(target=self._load_cats, daemon=True, name="blog-cats").start()
+
+    # ---------------- 分类（启动时后台从网站拿一次）
+    def _load_cats(self) -> None:
+        try:
+            cats = _parse_cats(_request("GET", f"/blog/cats.json?t={int(time.time())}", timeout=8))
+            if cats:
+                self.cats = cats
+                DATA_DIR.mkdir(exist_ok=True)
+                tmp = CATS_PATH.with_suffix(".tmp")
+                tmp.write_text(json.dumps(cats, ensure_ascii=False), encoding="utf-8")
+                tmp.replace(CATS_PATH)
+        except Exception:
+            pass
+        finally:
+            self._cats_ready.set()
 
     # ---------------- 登录
     def status(self) -> dict:
-        return {"logged_in": bool(get_pin()), "cats": CATS, "site": SITE}
+        self._cats_ready.wait(3)  # 刚启动就打开随手记时稍等网站的分类
+        return {"logged_in": bool(get_pin()), "cats": self.cats, "site": SITE}
 
     def login(self, pin: str) -> dict:
         pin = str(pin or "").strip()
@@ -153,7 +193,7 @@ class Blog:
             "id": pid or _base36(int(time.time() * 1000)),
             "date": str(post.get("date") or now.strftime("%Y-%m-%d")),
             "time": str(post.get("time") if post.get("time") is not None else now.strftime("%H:%M")),
-            "cat": post.get("cat") if post.get("cat") in CATS else "think",
+            "cat": post.get("cat") if post.get("cat") in self.cats else "think",
             "title": str(post.get("title") or "").strip(),
             "text": text,
         }

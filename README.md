@@ -123,6 +123,20 @@ Bot 工作中可看进度、一键停止；音乐可看进度、切歌、暂停�
   页面里一键打开 [uxplay-windows](https://github.com/leapbtw/uxplay-windows) 接收端（没装会打开下载页），
   然后在 iPhone 控制中心点「屏幕镜像」。
 
+**我的服务器**（标题栏的手机按钮 → 顶部切到「服务器」，会记住上次看的是哪页）：用 SSH 连上自己的 Linux 服务器。
+
+- **添加**：`~/.ssh/config` 里配好的服务器会列出来，点「添加」直接导入；也可以手填地址、用户名，选密钥（~/.ssh 里的私钥）
+  或密码登录。先试连一次，连得上才保存。密码存在 Windows 凭据管理器里，不写进文件。
+- **状态**：每张卡片显示 CPU、内存、根分区磁盘、网速、运行时间、Docker 容器；「详情」里有最忙的进程、所有磁盘、交换分区、
+  失败的 systemd 服务。页面开着时每 3 秒刷新，关掉就不刷；连接闲置 10 分钟自动断开。
+- **命令**：常用命令按钮（磁盘、内存、进程、Docker、端口、日志、登录记录，可编辑）一点就跑，也可以自己输命令，↑ 翻历史，
+  跑过的命令能「存为常用」。删文件、重启、停服务这类命令要按两次 Enter。密码登录的服务器跑 `sudo` 会自动填密码。
+  单条命令最长 30 秒，`vim`、`top`、`tail -f` 这种交互 / 长时间的用「终端」。
+- **终端**：用 Windows 自带的 OpenSSH 在 Windows Terminal 新标签页里打开一个完整的 SSH 会话。
+- **让 Bot 管服务器**：直接说「看看服务器怎么样」「服务器上 nginx 还在跑吗」「把 xx 容器重启一下」，Bot 用 `server` 工具
+  查状态、执行命令；重启服务、删文件、改配置、装卸软件这类命令会先弹确认卡片。
+- 服务器指纹第一次连接时记在 `data/known_hosts`（也会读 `~/.ssh/known_hosts`），以后指纹变了会拒绝连接，防中间人。
+
 **用量**（标题栏的柱状图按钮）：
 
 - **Claude 订阅**：5 小时会话、本周额度的已用百分比和重置时间，和 Claude Code 的 `/usage` 一致
@@ -177,6 +191,8 @@ Bot 启动时会在后台一起启动 `sop\bin\SOP.exe`（C# 写的小程序，�
 
 另外：
 
+- 服务器上的命令（`server` 工具）：删除、重启 / 关机、停止或重启服务、结束进程、删 Docker 容器、装卸软件、
+  改权限 / 账户 / 防火墙、`sed -i` 和改写 /etc 等会先确认。
 - 发消息、付款、对外发布等不可撤回的事，系统提示要求 Bot 先用文字征求你同意。
 - 面板平时可以正常截图；只有 Bot 自己截屏的那一瞬间临时对截图隐身（`WDA_EXCLUDEFROMCAPTURE`），Bot 不会看到或误点自己；
   它要点的位置被面板挡住时，面板会自动收起，任务结束再出现。
@@ -190,6 +206,8 @@ bot/
   permissions.py  风险分级规则
   tools/desktop.py 桌面操作工具（进程内 MCP 服务器 desktop）
   tools/phone.py  手机操作工具（进程内 MCP 服务器 phone：截图、读界面、点击、输入…）
+  tools/server.py 服务器工具（进程内 MCP 服务器 server：看状态、执行命令、打开终端）
+  server.py       我的服务器：SSH 连接（paramiko）、状态采集、命令、~/.ssh/config 导入、打开终端
   phone.py        手机投屏：scrcpy / adb 下载、连接（USB、无线配对）、投屏窗口
   phonebar.py     投屏窗口旁边的竖向工具条
   app.py          桌面面板：pywebview 窗口、托盘、全局快捷键
@@ -203,7 +221,7 @@ bot/
     vendor/three/ three.js r160（MIT），本地加载，不依赖网络
   cli.py          终端版
 config.yaml       配置
-data/             日志、长期记忆（memory.md）
+data/             日志、长期记忆（memory.md）、服务器列表（servers.json）
 workspace/        Bot 的默认工作目录；对话历史按此目录保存
 installer/        Inno Setup 安装包脚本（MyAIBot.iss）
 phone/scrcpy/     手机投屏组件 scrcpy + adb（不在仓库里，自动下载）

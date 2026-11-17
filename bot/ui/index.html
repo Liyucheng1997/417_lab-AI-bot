@@ -23,7 +23,7 @@
       <button class="icon-btn" id="btn-search" title="搜索文件">
         <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>
       </button>
-      <button class="icon-btn" id="btn-phone" title="手机投屏：在电脑上操作手机">
+      <button class="icon-btn" id="btn-phone" title="手机和服务器：投屏操作手机、查看服务器状态">
         <svg class="ico" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg>
       </button>
       <button class="icon-btn" id="btn-usage" title="用量：订阅额度与 API">
@@ -64,14 +64,24 @@
     <div class="s-foot"><span id="s-status"></span><a id="s-rebuild" title="重新扫描所有磁盘（平时会自动实时更新，一般不需要）">重建索引</a></div>
   </section>
 
-  <section id="phone" class="phone" aria-label="手机投屏">
+  <section id="phone" class="phone" aria-label="手机和服务器">
     <div class="ph-top">
-      <div class="ph-title"><b>手机投屏</b><small>在电脑上直接用鼠标键盘操作手机</small></div>
+      <div class="ph-title"><b id="ph-title-b">手机投屏</b><small id="ph-title-s">在电脑上直接用鼠标键盘操作手机</small></div>
       <button class="icon-btn" id="ph-close" title="返回对话（Esc）">
         <svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
+    <div class="seg dv-tabs" id="dv-tabs"><button data-v="phone" class="on">手机</button><button data-v="server">服务器</button></div>
     <div class="ph-scroll" id="ph-scroll" tabindex="-1">
+      <div id="sv-main" hidden>
+        <div class="ph-h">我的服务器<small id="sv-live"></small></div>
+        <div id="sv-list"></div>
+        <div class="ph-h" id="sv-add-h">添加服务器<small>SSH 登录，密钥或密码都行</small></div>
+        <div id="sv-import"></div>
+        <div class="ph-card" id="sv-add"></div>
+        <p class="ph-foot">密码存在 Windows 凭据管理器里，不写进文件。服务器指纹第一次连接时记下，变了会拒绝连接。<br>
+          也可以直接跟 Bot 说「看看服务器怎么样」「服务器上 nginx 还在跑吗」。</p>
+      </div>
       <div id="ph-setup"></div>
       <div id="ph-main">
         <div class="ph-h">我的手机</div>

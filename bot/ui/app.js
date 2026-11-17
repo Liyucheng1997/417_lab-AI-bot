@@ -53,8 +53,9 @@
   let held = false;
   function syncHold() {
     const typing = (el) => document.activeElement === el && !!el.value.trim();
+    const typingIn = (box) => { const a = document.activeElement; return !!a && box.contains(a) && 'value' in a && a.tagName !== 'SELECT' && !!a.value.trim(); };
     const h = !!pop || !!document.querySelector('.viewer') || typing(input) || typing(sInput) || typing($('#ph-text')) || typing($('#nt-text')) || typing($('#nt-title'))
-      || (typeof P !== 'undefined' && P.open && !!P.qr);  // 扫码配对时别收起
+      || (typeof P !== 'undefined' && P.open && (!!P.qr || typingIn($('#sv-main'))));  // 扫码配对、服务器页正在填东西时别收起
     if (h !== held && api) { held = h; api.set_hold(h); }
   }
 
@@ -157,7 +158,7 @@
     session() {},
     shown() { app.classList.remove('enter'); void app.offsetWidth; app.classList.add('enter'); if (window.fluid) fluid.resume(); if (avatar && $('#welcome').style.display !== 'none') avatar.resume(); },
     hidden() { if (window.fluid) fluid.pause(); if (avatar) avatar.pause(); },
-    focus() { if (N.open) { if (N.ready) $('#nt-text').focus(); else $('#nt-pin').focus(); } else if (S.open) sInput.focus(); else if (P.open) { if (document.activeElement !== $('#ph-text')) $('#ph-scroll').focus(); } else input.focus(); },
+    focus() { if (N.open) { if (N.ready) $('#nt-text').focus(); else $('#nt-pin').focus(); } else if (S.open) sInput.focus(); else if (P.open) { const a = document.activeElement; if (!(a && $('#phone').contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) $('#ph-scroll').focus(); } else input.focus(); },
     search_open() { if (P.open) closePhone(); openSearch(); },
     note_open() { openNote(); },
     phone(ev) {
@@ -165,7 +166,8 @@
       else if (ev.event === 'started') toast(`${ev.name} 已投屏到电脑`, 'success');
       phoneRefresh();
     },
-    phone_open(ev) { if (ev.serial) P.target = ev.serial; openPhone(ev.focus); },
+    phone_open(ev) { if (ev.serial) P.target = ev.serial; openPhone(ev.focus, ev.view || 'phone'); },
+    server() { if (P.open && P.view === 'server') serverRefresh(false); },
     index(ev) { S.index = ev; renderStatus(); if (S.open && ev.state === 'ready' && S.q) runSearch(true); },
     suggestions(ev) { renderSuggestions(ev, true); },
     suggestions_failed() { $('#btn-reshuffle').classList.remove('spinning'); if (!$('#suggest').children.length || $('#suggest .skeleton')) renderSuggestions(null, true); },
@@ -204,6 +206,7 @@
     phone_status: '手机状态', phone_screenshot: '手机截图', phone_inspect: '读取手机界面', phone_tap: '点手机',
     phone_tap_element: '点手机控件', phone_swipe: '手机滑动', phone_type_text: '手机打字', phone_press_key: '手机按键',
     phone_open_app: '打开手机 App', phone_list_apps: '查手机 App', phone_mirror: '手机投屏', phone_shell: '手机命令',
+    server_status: '服务器状态', server_run: '服务器命令', server_terminal: '打开服务器终端',
     TodoWrite: '计划', Agent: '子任务', Task: '子任务', ToolSearch: '加载工具', Skill: '技能',
   };
   const label = (n) => LABELS[n] || n;
@@ -810,13 +813,13 @@
   }
   function phonePoll() {
     clearTimeout(P.timer);
-    if (!P.open) return;
+    if (!P.open || P.view === 'server') return;
     const fast = (P.st && P.st.download && 'pct' in P.st.download) || (P.st && P.st.pairing && ['waiting', 'pairing', 'connecting'].includes(P.st.pairing.state));
     P.timer = setTimeout(async () => { await phoneRefresh(); phonePoll(); }, fast ? 700 : 1600);
   }
 
   function renderPhone() {
-    const st = P.st; if (!st) return;
+    const st = P.st; if (!st || P.view === 'server') return;
     // 首次使用：下载投屏组件
     const setup = $('#ph-setup'), main = $('#ph-main');
     if (!st.tools) {
@@ -1013,24 +1016,385 @@
     box.querySelectorAll('select').forEach((x) => x.onchange = async () => { P.st.settings = await api.phone_set(x.dataset.k, x.value); renderPhoneSettings(); });
   }
 
-  function openPhone(focus) {
+  function openPhone(focus, view) {
     if (S.open) closeSearch();
     if (N.open) closeNote(false);
     if (!P.open) { P.open = true; app.classList.add('phoning'); }
+    setView(view || P.view);
     phoneRefresh().then(() => {
+      if (P.view !== 'phone') return;
       phonePoll();
       if (P.tab === 'qr' && !P.qr && P.st && P.st.tools && !(P.st.devices || []).length) startQr();
       if (focus === 'text') { const t = $('#ph-text'); if (!$('#ph-send').hidden) { t.focus(); } } });
     syncHold();
   }
   function closePhone() {
-    P.open = false; app.classList.remove('phoning'); clearTimeout(P.timer);
+    P.open = false; app.classList.remove('phoning'); clearTimeout(P.timer); clearTimeout(V.timer);
     if (P.qr) { api.phone_pair_cancel(); P.qr = null; $('#ph-qr').innerHTML = ''; }
     syncHold(); input.focus();
   }
   $('#btn-phone').onclick = () => (P.open ? closePhone() : openPhone());
   $('#ph-close').onclick = closePhone;
   $('#phone').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePhone(); } });
+  $('#phone').addEventListener('input', syncHold);
+  $('#phone').addEventListener('focusout', () => setTimeout(syncHold, 0));
+
+  // ---------------- 我的服务器（SSH：随时看状态、跑几条命令、打开终端） ----------------
+  const V = { st: null, timer: 0, detail: {}, cons: {}, hist: {}, hpos: {}, running: {}, form: null, adding: false, importing: {}, editCmds: {}, armed: null };
+  const fmtB = (b) => {
+    if (b == null) return '–';
+    const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0;
+    while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+    return `${b >= 100 || i === 0 ? Math.round(b) : b.toFixed(1)} ${u[i]}`;
+  };
+  const fmtUp = (s) => (s == null ? '' : s >= 86400 ? `${Math.floor(s / 86400)} 天` : s >= 3600 ? `${Math.floor(s / 3600)} 小时` : `${Math.max(1, Math.floor(s / 60))} 分钟`);
+  const pct = (u) => (u && u.total ? Math.round((u.used / u.total) * 100) : null);
+  const lvl = (p) => (p >= 90 ? 'danger' : p >= 75 ? 'warn' : '');
+  // 面板里直接敲的命令：这些会删数据 / 停服务 / 重启，要按两次 Enter
+  const SV_DANGER = /\brm\s|\b(reboot|shutdown|poweroff|halt|mkfs\S*|dd|kill|pkill|killall|userdel)\b|\bsystemctl\s+(stop|restart|disable|kill)\b|\bdocker(\s+compose|-compose)?\s+(rm|rmi|stop|kill|down|prune|system\s+prune)\b|\b(DROP|TRUNCATE)\b/i;
+
+  const VIEWS = { phone: ['手机投屏', '在电脑上直接用鼠标键盘操作手机'], server: ['我的服务器', '随时看状态，跑几条命令，或者打开 SSH 终端'] };
+  try { P.view = localStorage.getItem('dv-view') === 'server' ? 'server' : 'phone'; } catch (e) { P.view = 'phone'; }
+  function setView(v) {
+    P.view = v;
+    try { localStorage.setItem('dv-view', v); } catch (e) { /* 无痕模式 */ }
+    $('#dv-tabs').querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.v === v));
+    $('#ph-title-b').textContent = VIEWS[v][0]; $('#ph-title-s').textContent = VIEWS[v][1];
+    $('#sv-main').hidden = v !== 'server';
+    if (v === 'server') {
+      $('#ph-setup').hidden = true; $('#ph-main').hidden = true;
+      clearTimeout(P.timer);
+      if (P.qr) { api.phone_pair_cancel(); P.qr = null; $('#ph-qr').innerHTML = ''; }
+      if (P.open) serverRefresh(true).then(serverPoll);
+    } else {
+      clearTimeout(V.timer);
+      if (P.open) {
+        renderPhone(); phonePoll();
+        if (P.tab === 'qr' && !P.qr && P.st && P.st.tools && !(P.st.devices || []).length) startQr();
+      }
+    }
+    $('#ph-scroll').scrollTop = 0;
+    syncHold();
+  }
+  $('#dv-tabs').querySelectorAll('button').forEach((b) => b.onclick = () => { if (P.view !== b.dataset.v) setView(b.dataset.v); });
+
+  async function serverRefresh(refresh) {
+    if (!api) return;
+    try { V.st = await api.server_state(!!refresh); } catch (e) { console.warn(e); return; }
+    if (P.open && P.view === 'server') renderServers();
+  }
+  function serverPoll() {
+    clearTimeout(V.timer);
+    if (!P.open || P.view !== 'server') return;
+    V.timer = setTimeout(async () => { await serverRefresh(true); serverPoll(); }, 3000);
+  }
+
+  function renderServers() {
+    const st = V.st; if (!st) return;
+    const list = $('#sv-list'), servers = st.servers || [];
+    $('#sv-live').textContent = servers.length ? '每 3 秒刷新' : '';
+    // 卡片只建一次，之后只更新状态区，命令框里正在打的字不会丢
+    const keep = new Set(servers.map((s) => s.id));
+    list.querySelectorAll('.sv-card').forEach((c) => { if (!keep.has(c.dataset.id)) c.remove(); });
+    const empty = list.querySelector('.ph-empty');
+    if (servers.length && empty) empty.remove();
+    servers.forEach((s, i) => {
+      let card = list.querySelector(`.sv-card[data-id="${CSS.escape(s.id)}"]`);
+      if (!card) card = makeCard(s);
+      if (list.children[i] !== card) list.insertBefore(card, list.children[i] || null);
+      updateCard(card, s);
+    });
+    if (!servers.length && !list.querySelector('.ph-empty')) list.innerHTML = '<div class="ph-card ph-empty"><b>还没有添加服务器</b>填上 SSH 地址和登录方式，就能在这里随时看 CPU、内存、磁盘，跑几条命令</div>';
+    renderImport(); renderForm();
+  }
+
+  function makeCard(s) {
+    const card = el('div', 'ph-card sv-card');
+    card.dataset.id = s.id;
+    card.innerHTML = `<div class="sv-body"></div>
+      <div class="dev-actions">
+        <button class="btn btn-sm btn-primary" data-a="term" title="在 Windows Terminal 里打开一个真正的 SSH 会话">终端</button>
+        <button class="btn btn-sm" data-a="cons">命令</button>
+        <button class="btn btn-sm sv-more" data-a="more" title="修改、排序、删除">
+          <svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg></button>
+      </div>
+      <div class="sv-cons" hidden>
+        <div class="sv-chips"></div>
+        <div class="sv-cmdrow"><span class="sv-prompt">$</span><input class="sv-cmd" spellcheck="false" autocomplete="off" placeholder="输入命令，Enter 执行（↑ 翻历史）"><button class="btn btn-sm" data-a="run">执行</button></div>
+        <div class="sv-out" hidden></div>
+      </div>`;
+    const id = s.id;
+    card.querySelector('[data-a="term"]').onclick = async () => {
+      const r = await api.server_terminal(id);
+      toast(r.ok ? (r.password ? '已打开终端，在里面输一次密码' : '已打开 SSH 终端') : r.error, r.ok ? 'success' : 'error');
+    };
+    card.querySelector('[data-a="cons"]').onclick = () => toggleCons(card, id);
+    card.querySelector('[data-a="more"]').onclick = (e) => serverMenu(e.currentTarget, id);
+    card.querySelector('[data-a="run"]').onclick = () => runCmd(card, id);
+    const inp = card.querySelector('.sv-cmd');
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); runCmd(card, id); return; }
+      const h = V.hist[id] || [];
+      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && h.length) {
+        e.preventDefault();
+        let p = V.hpos[id] ?? h.length;
+        p = Math.max(0, Math.min(h.length, p + (e.key === 'ArrowUp' ? -1 : 1)));
+        V.hpos[id] = p; inp.value = h[p] || '';
+      }
+    });
+    inp.addEventListener('input', () => { V.armed = null; });
+    card.querySelector('.sv-body').addEventListener('click', (e) => {
+      const a = e.target.closest('[data-a]'); if (!a) return;
+      if (a.dataset.a === 'detail') { V.detail[id] = !V.detail[id]; renderServers(); }
+      else if (a.dataset.a === 'retry') serverRefresh(true);
+    });
+    if (V.cons[id]) toggleCons(card, id, true);
+    return card;
+  }
+
+  function meter(label, p, sub) {
+    return `<div class="sv-m ${p == null ? '' : lvl(p)}"><small>${label}</small><b>${p == null ? '–' : p + '<i>%</i>'}</b>
+      <div class="meter-bar"><i style="width:${p == null ? 0 : Math.min(100, p)}%"></i></div><em>${sub}</em></div>`;
+  }
+
+  function updateCard(card, s) {
+    const stt = s.status || {}, x = stt.stats;
+    renderChips(card, s);
+    const sig = JSON.stringify([s, V.detail[s.id]]);
+    if (card.dataset.sig === sig) return;
+    card.dataset.sig = sig;
+    const state = stt.state === 'ok' ? 'ok' : stt.state === 'error' ? 'err' : 'wait';
+    const tag = { ok: '<span class="tag ok">在线</span>', err: '<span class="tag warn">连不上</span>', wait: '<span class="tag">连接中</span>' }[state];
+    const sub = [];
+    if (x && x.os) sub.push(esc(x.os));
+    if (x && x.uptime != null) sub.push(`已运行 ${fmtUp(x.uptime)}`);
+    sub.push(`<span title="${s.auth === 'password' ? '密码登录' : '密钥登录'}">${esc(s.user)}@${esc(s.host)}${+s.port !== 22 ? ':' + s.port : ''}</span>`);
+    let html = `<div class="dev"><i class="sv-ico ${state}"></i>
+      <div class="dev-main"><div class="dev-name"><span>${esc(s.name)}</span>${tag}</div><div class="dev-sub">${sub.join('<i class="sv-sep"></i>')}</div></div></div>`;
+    if (x) {
+      const root = (x.disks || [])[0];
+      html += `<div class="sv-meters${stt.stale ? ' stale' : ''}">
+        ${meter('CPU', x.cpu == null ? null : Math.round(x.cpu), `${x.ncpu || '?'} 核 · 负载 ${x.load ? x.load[0].toFixed(2) : '–'}`)}
+        ${meter('内存', pct(x.mem), x.mem ? `${fmtB(x.mem.used)} / ${fmtB(x.mem.total)}` : '')}
+        ${meter(root && root.mount !== '/' ? `磁盘 ${esc(root.mount)}` : '磁盘', pct(root), root ? `${fmtB(root.used)} / ${fmtB(root.total)}` : '')}</div>`;
+      const line = [];
+      if (x.net) line.push(`<span title="下载 / 上传">↓ ${fmtB(x.net.rx)}/s　↑ ${fmtB(x.net.tx)}/s</span>`);
+      if ((x.docker || []).length) line.push(`<span>Docker ${x.docker.filter((d) => d.state === 'running').length}/${x.docker.length} 在跑</span>`);
+      if ((x.failed || []).length) line.push(`<span class="bad">${x.failed.length} 个服务挂了</span>`);
+      line.push(`<a data-a="detail">${V.detail[s.id] ? '收起' : '详情'}</a>`);
+      html += `<div class="sv-line">${line.join('')}</div>`;
+      if (V.detail[s.id]) html += detailHtml(x);
+    } else if (state === 'wait') {
+      html += '<div class="sv-wait"><i class="ph-busy"></i>正在连接…</div>';
+    }
+    if (state === 'err') html += `<div class="dev-hint">${esc(stt.error || '连接出错')}${x ? '（上面是之前的数据）' : ''} <a data-a="retry">重试</a></div>`;
+    card.querySelector('.sv-body').innerHTML = html;
+  }
+
+  function detailHtml(x) {
+    const rows = [];
+    rows.push('<div class="sv-dh">最忙的进程<small>最近 0.5 秒</small></div>');
+    rows.push((x.top || []).length ? x.top.map((t) => `<div class="sv-row"><span>${esc(t.name)}</span><small>PID ${esc(t.pid)}</small><b>${t.cpu.toFixed(1)}%</b></div>`).join('')
+      : '<div class="sv-row"><span class="mute">都很闲</span></div>');
+    rows.push('<div class="sv-dh">磁盘和内存</div>');
+    for (const d of x.disks || []) {
+      const p = pct(d);
+      rows.push(`<div class="sv-row"><span>${esc(d.mount)}</span><i class="sv-mini ${lvl(p)}"><i style="width:${p}%"></i></i><small>${fmtB(d.used)} / ${fmtB(d.total)}</small></div>`);
+    }
+    if (x.swap) { const p = pct(x.swap); rows.push(`<div class="sv-row"><span>交换分区</span><i class="sv-mini ${lvl(p)}"><i style="width:${p}%"></i></i><small>${fmtB(x.swap.used)} / ${fmtB(x.swap.total)}</small></div>`); }
+    if ((x.docker || []).length) {
+      rows.push('<div class="sv-dh">Docker 容器</div>');
+      rows.push(x.docker.map((d) => `<div class="sv-row"><i class="sv-dot ${d.state === 'running' ? 'on' : d.state === 'restarting' ? 'warn' : ''}"></i><span>${esc(d.name)}</span><small>${esc(d.status)}</small></div>`).join(''));
+    }
+    if ((x.failed || []).length) {
+      rows.push('<div class="sv-dh">失败的服务</div>');
+      rows.push(x.failed.map((f) => `<div class="sv-row"><i class="sv-dot bad"></i><span>${esc(f)}</span></div>`).join(''));
+    }
+    const meta = [x.host && `主机名 ${esc(x.host)}`, x.arch && esc(x.arch), x.load && `负载 ${x.load.map((l) => l.toFixed(2)).join(' / ')}`, x.users != null && `${x.users} 个登录会话`].filter(Boolean);
+    rows.push(`<div class="sv-meta">${meta.join(' · ')}</div>`);
+    return `<div class="sv-detail">${rows.join('')}</div>`;
+  }
+
+  function renderChips(card, s) {
+    const box = card.querySelector('.sv-chips');
+    if (V.editCmds[s.id]) return;  // 正在编辑常用命令
+    const sig = JSON.stringify(s.commands);
+    if (box.dataset.sig === sig) return;
+    box.dataset.sig = sig;
+    box.innerHTML = (s.commands || []).map((c, i) => `<button class="sv-chip" data-i="${i}" title="${esc(c.cmd)}">${esc(c.name)}</button>`).join('')
+      + '<button class="sv-chip sv-chip-edit" data-i="edit" title="增删改常用命令">编辑</button>';
+    box.querySelectorAll('.sv-chip').forEach((b) => b.onclick = () => {
+      if (b.dataset.i === 'edit') { editCmds(card, s); return; }
+      const c = s.commands[+b.dataset.i];
+      card.querySelector('.sv-cmd').value = c.cmd; runCmd(card, s.id);
+    });
+  }
+
+  function editCmds(card, s) {
+    V.editCmds[s.id] = true;
+    const box = card.querySelector('.sv-chips');
+    box.dataset.sig = '';
+    box.innerHTML = `<div class="sv-cmd-edit"><small>一行一条：<code>名字 | 命令</code>，顺序就是按钮的顺序</small>
+      <textarea class="input" rows="7" spellcheck="false">${esc((s.commands || []).map((c) => `${c.name} | ${c.cmd}`).join('\n'))}</textarea>
+      <div class="sv-form-actions"><button class="btn btn-sm btn-primary" data-k="save">保存</button><button class="btn btn-sm" data-k="cancel">取消</button></div></div>`;
+    const ta = box.querySelector('textarea'); ta.focus();
+    box.querySelector('[data-k="cancel"]').onclick = () => { delete V.editCmds[s.id]; renderChips(card, s); syncHold(); };
+    box.querySelector('[data-k="save"]').onclick = async () => {
+      const cmds = ta.value.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+        const i = l.indexOf('|');
+        return i > 0 ? { name: l.slice(0, i).trim(), cmd: l.slice(i + 1).trim() } : { name: l.slice(0, 12), cmd: l };
+      });
+      s.commands = await api.server_commands(s.id, cmds);
+      delete V.editCmds[s.id]; renderChips(card, s); toast('常用命令已保存', 'success'); syncHold();
+      serverRefresh(false);
+    };
+  }
+
+  function toggleCons(card, id, show) {
+    const c = card.querySelector('.sv-cons');
+    V.cons[id] = show ?? c.hidden;
+    c.hidden = !V.cons[id];
+    card.querySelector('[data-a="cons"]').classList.toggle('on', V.cons[id]);
+    if (V.cons[id] && show == null) card.querySelector('.sv-cmd').focus();
+    syncHold();
+  }
+
+  async function runCmd(card, id) {
+    const inp = card.querySelector('.sv-cmd'), cmd = inp.value.trim();
+    if (!cmd || V.running[id]) return;
+    if (SV_DANGER.test(cmd) && V.armed !== id + cmd) {
+      V.armed = id + cmd;
+      toast('这条命令会删数据 / 停服务 / 重启，确定的话再按一次 Enter');
+      return;
+    }
+    V.armed = null;
+    const h = (V.hist[id] = (V.hist[id] || []).filter((x) => x !== cmd)); h.push(cmd); if (h.length > 50) h.shift();
+    V.hpos[id] = h.length;
+    V.running[id] = true;
+    const run = card.querySelector('[data-a="run"]'); run.innerHTML = '<i class="ph-busy"></i>运行中'; run.disabled = true;
+    const out = card.querySelector('.sv-out');
+    out.hidden = false;
+    out.innerHTML = `<div class="sv-out-h"><code>${esc(cmd)}</code><span><i class="ph-busy"></i>运行中…</span></div>`;
+    let r;
+    try { r = await api.server_run(id, cmd); } catch (e) { r = { ok: false, error: String(e) }; }
+    V.running[id] = false; run.textContent = '执行'; run.disabled = false;
+    inp.value = ''; syncHold();
+    if (!r.ok) {
+      out.innerHTML = `<div class="sv-out-h"><code>${esc(cmd)}</code><span class="bad">没执行成功</span></div><pre>${esc(r.error)}</pre>`;
+      return;
+    }
+    const s = ((V.st && V.st.servers) || []).find((x) => x.id === id) || {};
+    const saved = (s.commands || []).some((c) => c.cmd === cmd);
+    out.innerHTML = `<div class="sv-out-h"><code title="${esc(cmd)}">${esc(cmd)}</code>
+      <span class="${r.code === 0 ? '' : 'bad'}">${r.code === 0 ? '完成' : r.code === -1 ? '超时' : '退出码 ' + r.code} · ${(r.ms / 1000).toFixed(1)} 秒</span>
+      ${saved ? '' : '<a data-k="save" title="加到上面的常用命令按钮里">存为常用</a>'}<a data-k="copy">复制</a><a data-k="clear">清空</a></div>
+      <pre>${esc(r.output.replace(/\s+$/, '')) || '<span class="mute">（没有输出）</span>'}</pre>`;
+    const pre = out.querySelector('pre'); pre.scrollTop = pre.scrollHeight;
+    out.querySelector('[data-k="copy"]').onclick = () => { navigator.clipboard.writeText(r.output).then(() => toast('已复制', 'success')); };
+    out.querySelector('[data-k="clear"]').onclick = () => { out.hidden = true; out.innerHTML = ''; };
+    const sv = out.querySelector('[data-k="save"]');
+    if (sv) sv.onclick = async () => {
+      const name = cmd.replace(/^sudo\s+/, '').split(/\s+/).slice(0, 2).join(' ').slice(0, 14);
+      s.commands = await api.server_commands(id, [...(s.commands || []), { name, cmd }]);
+      sv.remove(); toast(`已存为「${name}」，可以在「编辑」里改名`, 'success');
+      renderChips(card, s);
+    };
+    inp.focus();
+  }
+
+  function serverMenu(anchor, id) {
+    const servers = V.st.servers || [], i = servers.findIndex((s) => s.id === id), s = servers[i];
+    if (!s) return;
+    const items = [
+      { label: '修改连接信息', run: () => { V.form = { ...s }; V.adding = true; renderForm(true); } },
+      { label: '刷新状态', run: () => serverRefresh(true) },
+    ];
+    if (i > 0) items.push({ label: '往上移', run: async () => { await api.server_move(id, -1); serverRefresh(false); } });
+    if (i < servers.length - 1) items.push({ label: '往下移', run: async () => { await api.server_move(id, 1); serverRefresh(false); } });
+    items.push('-', { label: '删除这台服务器', run: () => setTimeout(() => popup(anchor, [
+      { header: `删除「${s.name}」？只是从 Bot 里移除，服务器本身不受影响` },
+      { label: '删除', run: async () => { await api.server_remove(id); toast('已删除'); serverRefresh(false); } },
+      { label: '取消', run: () => {} },
+    ]), 150) });
+    popup(anchor, items);
+  }
+
+  function renderImport() {
+    const box = $('#sv-import'), hosts = V.st.ssh_hosts || [];
+    const sig = JSON.stringify([hosts, V.importing]);
+    if (box.dataset.sig === sig) return;
+    box.dataset.sig = sig;
+    box.innerHTML = hosts.length ? `<div class="ph-card"><div class="ph-form-h">在 ~/.ssh/config 里找到 ${hosts.length} 台<small>你已经用 ssh 连过的服务器，点一下直接加进来</small></div>
+      ${hosts.map((h) => `<div class="known" data-alias="${esc(h.alias)}"><span>${esc(h.alias)}</span><small>${esc(h.user ? h.user + '@' : '')}${esc(h.host)}</small>
+        ${V.importing[h.alias] ? '<a><i class="ph-busy"></i>连接中</a>' : '<a data-k="add">添加</a>'}</div>`).join('')}</div>` : '';
+    box.querySelectorAll('[data-k="add"]').forEach((a) => a.onclick = async () => {
+      const h = hosts.find((x) => x.alias === a.closest('[data-alias]').dataset.alias);
+      const form = { name: h.alias, host: h.host, port: h.port, user: h.user, auth: 'key', key: h.key, alias: h.alias };
+      if (!h.user) { V.form = form; V.adding = true; renderForm(true); toast('~/.ssh/config 里没写用户名，补上再添加'); return; }
+      V.importing[h.alias] = true; renderImport();
+      const r = await api.server_save(form);
+      delete V.importing[h.alias];
+      if (r.ok) toast(`已添加 ${h.alias}`, 'success');
+      else { toast(r.error, 'error'); V.form = { ...form, error: r.error }; V.adding = true; renderForm(true); }
+      serverRefresh(true);
+    });
+  }
+
+  function renderForm(scroll) {
+    const box = $('#sv-add'), servers = V.st.servers || [];
+    const open = V.adding || !servers.length;
+    const f = V.form || { auth: 'key', port: 22 };
+    const sig = JSON.stringify([open, V.form, V.st.keys]);
+    if (box.dataset.sig === sig) { if (scroll) box.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+    box.dataset.sig = sig;
+    $('#sv-add-h').firstChild.textContent = f.id ? `修改「${f.name}」` : '添加服务器';
+    if (!open) {
+      box.className = 'ph-card sv-add-btn';
+      box.innerHTML = '<button class="btn btn-sm" id="sv-add-open">＋ 添加服务器</button>';
+      $('#sv-add-open').onclick = () => { V.adding = true; renderForm(true); $('#sv-f-host').focus(); };
+      return;
+    }
+    box.className = 'ph-card sv-form';
+    const keys = V.st.keys || [];
+    const keyOpts = [['', '自动（默认密钥 / ssh-agent）'], ...keys.map((k) => [k, k.replace('~/.ssh/', '')])];
+    if (f.key && !keys.includes(f.key)) keyOpts.push([f.key, f.key]);
+    box.innerHTML = `
+      <input class="input" id="sv-f-name" placeholder="名字（可以不填，比如「博客服务器」）" value="${esc(f.name || '')}">
+      <div class="ph-row"><input class="input" id="sv-f-host" placeholder="地址：IP 或域名" spellcheck="false" value="${esc(f.host || '')}"><input class="input ph-code" id="sv-f-port" placeholder="端口" inputmode="numeric" value="${esc(f.port || 22)}"></div>
+      <input class="input" id="sv-f-user" placeholder="用户名（如 root、ubuntu）" spellcheck="false" value="${esc(f.user || '')}">
+      <div class="seg seg-sm" id="sv-f-auth"><button data-v="key" class="${f.auth !== 'password' ? 'on' : ''}">密钥登录</button><button data-v="password" class="${f.auth === 'password' ? 'on' : ''}">密码登录</button></div>
+      <div data-auth="key"${f.auth === 'password' ? ' hidden' : ''}><select class="input" id="sv-f-key">${keyOpts.map(([v, n]) => `<option value="${esc(v)}"${v === (f.key || '') ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select>
+        <small class="sv-f-tip">公钥要先放进服务器的 ~/.ssh/authorized_keys</small></div>
+      <div data-auth="password"${f.auth === 'password' ? '' : ' hidden'}><input class="input" id="sv-f-pw" type="password" autocomplete="new-password" placeholder="${f.has_password ? '密码（不改就留空）' : '密码'}">
+        <small class="sv-f-tip">存在 Windows 凭据管理器里；在「命令」里跑 sudo 会自动填</small></div>
+      <div class="sv-f-err" id="sv-f-err">${esc(f.error || '')}</div>
+      <div class="sv-form-actions"><button class="btn btn-sm btn-primary" id="sv-f-go">${f.id ? '保存' : '连接并添加'}</button>${servers.length ? '<button class="btn btn-sm" id="sv-f-cancel">取消</button>' : ''}</div>`;
+    let auth = f.auth === 'password' ? 'password' : 'key';
+    box.querySelectorAll('#sv-f-auth button').forEach((b) => b.onclick = () => {
+      auth = b.dataset.v;
+      box.querySelectorAll('#sv-f-auth button').forEach((x) => x.classList.toggle('on', x === b));
+      box.querySelectorAll('[data-auth]').forEach((x) => { x.hidden = x.dataset.auth !== auth; });
+      if (auth === 'password') $('#sv-f-pw').focus();
+    });
+    const cancel = $('#sv-f-cancel');
+    if (cancel) cancel.onclick = () => { V.form = null; V.adding = false; renderForm(); syncHold(); };
+    const go = async () => {
+      const b = $('#sv-f-go'), err = $('#sv-f-err');
+      const form = { id: f.id || '', alias: f.alias || '', name: $('#sv-f-name').value, host: $('#sv-f-host').value, port: $('#sv-f-port').value,
+        user: $('#sv-f-user').value, auth, key: $('#sv-f-key').value, password: $('#sv-f-pw').value };
+      if (!form.host.trim()) { err.textContent = '请填服务器地址'; $('#sv-f-host').focus(); return; }
+      b.innerHTML = '<i class="ph-busy"></i>正在连接'; b.disabled = true; err.textContent = '';
+      const r = await api.server_save(form);
+      b.textContent = f.id ? '保存' : '连接并添加'; b.disabled = false;
+      if (!r.ok) { err.textContent = r.error; return; }
+      toast(f.id ? '已保存' : '连上了，已添加', 'success');
+      V.form = null; V.adding = false; syncHold();
+      await serverRefresh(true);
+    };
+    $('#sv-f-go').onclick = go;
+    box.querySelectorAll('input').forEach((x) => x.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.isComposing) go(); }));
+    if (scroll) box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 
   // ---------------- 随手记（发到 liyucheng.me 博客，和网站 write.html 同一份数据） ----------------
   const N = { open: false, inited: false, cats: {}, cat: 'think', edit: null, when: null, shown: [], total: 0, more: false, loading: false, busy: false, fresh: null, ready: false };

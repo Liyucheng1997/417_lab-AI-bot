@@ -13,6 +13,7 @@ READ_ONLY_TOOLS = {
     "mcp__desktop__list_processes", "mcp__desktop__cursor_position", "mcp__desktop__list_apps",
     "mcp__desktop__find_files", "mcp__desktop__claude_usage",
     "mcp__phone__status", "mcp__phone__screenshot", "mcp__phone__inspect", "mcp__phone__list_apps",
+    "mcp__server__status",
 }
 
 # 操作鼠标键盘、打开软件等：smart 下放行，strict 下询问
@@ -23,6 +24,7 @@ DESKTOP_ACTION_TOOLS = {
     "mcp__desktop__click_element",
     "mcp__phone__tap", "mcp__phone__tap_element", "mcp__phone__swipe", "mcp__phone__type_text",
     "mcp__phone__press_key", "mcp__phone__open_app", "mcp__phone__mirror",
+    "mcp__server__terminal",
 }
 
 # 手机上的 adb shell 命令：这些会删数据、卸载、恢复出厂、重启、改系统设置，要先问
@@ -36,6 +38,26 @@ DANGEROUS_PHONE_SHELL = [
     (r"\bam\s+(force-stop|kill)\b", "结束 App"),
     (r"\bcontent\s+(insert|update|delete)\b", "改写手机数据库（短信、联系人等）"),
     (r"\bservice\s+call\b", "调用系统服务"),
+]
+
+# 服务器（Linux）上的命令：删数据、重启、停服务、改权限 / 账户 / 防火墙、装卸软件，要先问
+DANGEROUS_SERVER_SHELL = [
+    (r"\brm\s|\bunlink\s|\bshred\b|\btruncate\b|\bfind\b.*\s-delete\b", "删除服务器上的文件"),
+    (r"\b(reboot|shutdown|poweroff|halt)\b|\binit\s+[06]\b", "重启 / 关闭服务器"),
+    (r"\bsystemctl\s+(stop|restart|disable|mask|kill|reboot|poweroff|isolate)\b|\bservice\s+\S+\s+(stop|restart)\b", "停止 / 重启服务"),
+    (r"\b(kill|pkill|killall)\b", "结束进程"),
+    (r"\bdocker(\s+compose|-compose)?\s+(rm|rmi|stop|kill|restart|down|prune|system\s+prune|volume\s+rm)\b", "停止 / 删除 Docker 容器或数据"),
+    (r"\b(apt|apt-get|yum|dnf|pacman|snap|pip3?|npm)\s+(remove|purge|autoremove|uninstall|install|upgrade|dist-upgrade)\b", "安装 / 卸载软件"),
+    (r"\b(dd|mkfs\S*|fdisk|parted|wipefs|mount|umount)\b", "磁盘操作"),
+    (r"\b(chmod|chown)\s+(-\w*R|.*\s/(etc|usr|var|bin|boot)\b)", "批量修改权限"),
+    (r"\b(useradd|userdel|usermod|passwd|visudo)\b", "修改系统账户"),
+    (r"\b(iptables|nft|ufw|firewall-cmd)\b", "修改防火墙"),
+    (r"\bcrontab\s+-(r|e)\b", "修改定时任务"),
+    (r"(^|[^>])>\s*/(etc|boot|usr|bin|var/lib)/|\btee\s+(-a\s+)?/(etc|boot)/|\bsed\s+-i\b", "改写文件"),
+    (r"\bmv\s", "移动 / 覆盖文件"),
+    (r"\bgit\s+(push|reset\s+--hard|clean\s+-\w*f|checkout\s+--)", "不可逆的 git 操作"),
+    (r"\b(DROP|TRUNCATE|DELETE\s+FROM)\b", "删除数据库数据"),
+    (r"\b(curl|wget)\b.*\|\s*(sudo\s+)?(sh|bash)\b", "下载并直接执行脚本"),
 ]
 
 SHELL_TOOLS = {"Bash", "PowerShell"}
@@ -102,6 +124,12 @@ def classify(tool: str, args: dict, policy: str) -> tuple[bool, str]:
             if re.search(pattern, cmd, re.I):
                 return True, reason
         return False, ""
+    if tool == "mcp__server__run":
+        cmd = str(args.get("command", ""))
+        for pattern, reason in DANGEROUS_SERVER_SHELL:
+            if re.search(pattern, cmd, re.I):
+                return True, reason
+        return False, ""
     if tool in WRITE_TOOLS:
         path = str(args.get("file_path") or args.get("notebook_path") or "")
         if PROTECTED_PATHS.match(path):
@@ -119,6 +147,9 @@ def describe(tool: str, args: dict) -> str:
     """一行人话描述，用于确认卡片。"""
     if tool in SHELL_TOOLS or tool == "mcp__phone__shell":
         return str(args.get("command", ""))
+    if tool == "mcp__server__run":
+        where = f"[{args['server']}] " if args.get("server") else ""
+        return where + str(args.get("command", ""))
     if tool in WRITE_TOOLS:
         return str(args.get("file_path") or args.get("notebook_path") or "")
     short = {k: (str(v)[:200]) for k, v in args.items()}

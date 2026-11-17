@@ -19,7 +19,7 @@ from pathlib import Path
 
 from .tools import desktop  # 先导入：设置 DPI 感知
 from .tools import phone as phone_tools
-from . import blog, dock, fileindex, island, phone, shellicon, sop, suggest, tokenstats, updater, usage
+from . import blog, dock, fileindex, island, phone, server, shellicon, sop, suggest, tokenstats, updater, usage
 from .agent import BotSession
 from .brand import make_icon
 from . import __version__
@@ -372,6 +372,33 @@ class Api:
         import webbrowser
         webbrowser.open(phone.UXPLAY_URL)
         return {"ok": True, "started": False}
+
+    # ---------------- 我的服务器（SSH）
+    def server_state(self, refresh: bool = True):
+        """服务器列表 + 最近一次的状态；refresh=True 时顺便在后台刷新（面板「服务器」页开着时每几秒调一次）。"""
+        st = server.state()
+        if refresh:
+            for s in st["servers"]:
+                server.refresh(s["id"], self._app.emit)
+        return st
+
+    def server_save(self, form: dict):
+        return server.test_and_save(form)
+
+    def server_remove(self, sid: str):
+        server.remove(sid)
+
+    def server_move(self, sid: str, delta: int):
+        server.move(sid, int(delta))
+
+    def server_run(self, sid: str, cmd: str):
+        return server.run(sid, cmd, 30)
+
+    def server_commands(self, sid: str, commands: list):
+        return server.set_commands(sid, commands)
+
+    def server_terminal(self, sid: str):
+        return server.open_terminal(sid)
 
 
 class BotApp:

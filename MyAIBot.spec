@@ -11,7 +11,7 @@ hiddenimports = (
     + collect_submodules("winrt")  # 灵动岛读「正在播放」
     + ["pystray._win32", "clr", "win32timezone", "win32cred", "comtypes.stream",
        "win32file", "win32clipboard", "win32com.shell", "win32com.shell.shellcon",
-       "qrcode.image.pil"]
+       "qrcode.image.pil", "paramiko", "nacl", "bcrypt"]
 )
 
 a = Analysis(

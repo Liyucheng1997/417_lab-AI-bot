@@ -10,7 +10,7 @@ namespace MySOP.Capture
 {
     /// <summary>
     /// 贴图窗口（仿 Snipaste）：置顶显示图片。
-    /// 拖动 = 移动，滚轮 = 缩放，Ctrl+滚轮 = 透明度，Ctrl+C = 复制图片，Ctrl+Shift+C = 只复制文字，双击 / Esc = 关闭，右键 = 菜单。
+    /// 拖动 = 移动，滚轮 = 缩放，Ctrl+滚轮 = 透明度，Ctrl+C = 复制（文字贴图复制文字，图片贴图复制图片），Ctrl+Shift+C = 只复制文字，双击 / Esc = 关闭，右键 = 菜单。
     /// </summary>
     public class PinWindow : Form
     {
@@ -18,7 +18,7 @@ namespace MySOP.Capture
         static bool allHidden;
 
         readonly Bitmap image;
-        readonly string sourceText; // 贴的是文字（或剪贴板里同时带文字）时的原文，Ctrl+Shift+C 直接复制它
+        readonly string sourceText; // 文字贴图的原文（null = 图片贴图）。文字贴图里 Ctrl+C 复制的就是这段文字
         float zoom = 1f;
         Point dragOffset;
         bool dragging;
@@ -36,11 +36,11 @@ namespace MySOP.Capture
         /// <summary>把剪贴板内容（图片 / 图片文件 / 文字）钉到屏幕上。</summary>
         public static void FromClipboard()
         {
-            var bmp = ClipboardImage.Get();
+            // 剪贴板里有文字就贴成文字（Word / 网页复制时常常顺带一张图，那张图不要）
             string text = null;
             try { if (Clipboard.ContainsText()) text = Clipboard.GetText(); } catch { }
             if (string.IsNullOrWhiteSpace(text)) text = null;
-            if (bmp == null && text != null) bmp = RenderText(text);
+            var bmp = text != null ? RenderText(text) : ClipboardImage.Get();
             if (bmp == null) { Host.Notify("剪贴板里没有图片或文字", "先复制一张图片再按贴图热键"); return; }
             var c = Cursor.Position;
             var area = Screen.FromPoint(c).WorkingArea;
@@ -105,8 +105,16 @@ namespace MySOP.Capture
         ContextMenuStrip BuildMenu()
         {
             var m = new ContextMenuStrip { Font = new Font(Theme.FontName, 9f) };
-            m.Items.Add(new ToolStripMenuItem("复制", null, (s, e) => ClipboardImage.Set(image)) { ShortcutKeyDisplayString = "Ctrl+C" });
-            m.Items.Add(new ToolStripMenuItem("复制文字", null, (s, e) => CopyText()) { ShortcutKeyDisplayString = "Ctrl+Shift+C" });
+            if (sourceText != null)
+            {
+                m.Items.Add(new ToolStripMenuItem("复制文字", null, (s, e) => CopyText()) { ShortcutKeyDisplayString = "Ctrl+C" });
+                m.Items.Add(new ToolStripMenuItem("复制为图片", null, (s, e) => CopyImage()));
+            }
+            else
+            {
+                m.Items.Add(new ToolStripMenuItem("复制", null, (s, e) => CopyImage()) { ShortcutKeyDisplayString = "Ctrl+C" });
+                m.Items.Add(new ToolStripMenuItem("复制文字（OCR）", null, (s, e) => CopyText()) { ShortcutKeyDisplayString = "Ctrl+Shift+C" });
+            }
             m.Items.Add(new ToolStripMenuItem("另存为…", null, (s, e) => CaptureOverlay.SaveImage(image)) { ShortcutKeyDisplayString = "Ctrl+S" });
             m.Items.Add(new ToolStripMenuItem("识别文字 OCR", null, (s, e) => Ocr()));
             m.Items.Add(new ToolStripMenuItem("问 AI", null, (s, e) => Host.AskAiImage(image)));
@@ -127,6 +135,8 @@ namespace MySOP.Capture
             if (ocr == null) { Host.Notify("OCR 模块未启用", ""); return; }
             ocr.Recognize(new Bitmap(image), true);
         }
+
+        void CopyImage() { ClipboardImage.Set(image); Host.Notify("已复制贴图", null); }
 
         /// <summary>只复制文字（仿 Snipaste 的 Ctrl+Shift+C）：有原文就复制原文，否则 OCR 后复制。</summary>
         void CopyText()
@@ -218,7 +228,7 @@ namespace MySOP.Capture
             {
                 case Keys.Escape: Close(); return true;
                 case Keys.Control | Keys.Shift | Keys.C: CopyText(); return true;
-                case Keys.Control | Keys.C: ClipboardImage.Set(image); Host.Notify("已复制贴图", null); return true;
+                case Keys.Control | Keys.C: if (sourceText != null) CopyText(); else CopyImage(); return true;
                 case Keys.Control | Keys.S: CaptureOverlay.SaveImage(image); return true;
                 case Keys.D1: case Keys.NumPad1: SetZoom(1f, new Point(0, 0)); return true;
                 case Keys.Left: Left -= 1; return true;

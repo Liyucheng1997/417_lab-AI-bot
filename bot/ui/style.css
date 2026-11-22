@@ -142,6 +142,18 @@ main { flex: 1; overflow-y: auto; padding: 4px 14px 16px; scroll-behavior: smoot
 .look-pop input[type='range'] { width: 100%; accent-color: var(--accent-color); }
 .look-note { margin: 10px 0 0; font-size: 11.5px; line-height: 1.5; color: var(--text-3); }
 
+/* 分享当前 WiFi */
+.wifi-pop { width: 260px; padding: 16px; text-align: center; }
+.wifi-wait { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 22px 4px; font-size: 12.5px; line-height: 1.6; color: var(--text-2); }
+.wifi-wait.err { color: var(--danger); }
+.wifi-qr { display: block; width: 184px; height: 184px; margin: 0 auto; border-radius: 12px; background: #fff; padding: 6px; box-shadow: 0 0 0 1px var(--line), var(--shadow-card); image-rendering: pixelated; }
+.wifi-name { margin-top: 12px; font-size: 15px; font-weight: 600; letter-spacing: -0.02em; overflow-wrap: anywhere; }
+.wifi-pwd { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 24px; margin-top: 2px; font-size: 12.5px; color: var(--text-2); overflow-wrap: anywhere; user-select: text; }
+.wifi-pwd span { font-family: var(--mono); }
+.wifi-link { flex: none; border: 0; background: transparent; padding: 2px 6px; border-radius: 6px; font-size: 12px; color: var(--accent-text); }
+.wifi-link:hover { background: var(--hover); }
+.wifi-actions { display: flex; justify-content: center; gap: 8px; margin-top: 12px; }
+
 /* 面板从屏幕边缘滑进来时，内容分层跟进 */
 .enter .titlebar { animation: slideIn 0.45s var(--ease-out) both; }
 .enter main { animation: slideIn 0.5s 0.04s var(--ease-out) both; }

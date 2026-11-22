@@ -123,6 +123,8 @@ Bot 工作中可看进度、一键停止；音乐可看进度、切歌、暂停�
   页面里一键打开 [uxplay-windows](https://github.com/leapbtw/uxplay-windows) 接收端（没装会打开下载页），
   然后在 iPhone 控制中心点「屏幕镜像」。
 
+**分享当前 WiFi**（设置 → 分享当前 WiFi…）：读出电脑正连着的 WiFi，弹出二维码，手机用系统相机一扫就连上，不用装软件（微信扫不行）。密码默认打码，可以显示、复制；「复制口令」得到一段文字，发给不在身边的人，在 [WiFi 共享器](https://liyucheng1997.github.io/469_lab-WIFI-sharing/) 网页里粘贴就能看到名称和密码。
+
 **我的服务器**（标题栏的手机按钮 → 顶部切到「服务器」，会记住上次看的是哪页）：用 SSH 连上自己的 Linux 服务器。
 
 - **添加**：`~/.ssh/config` 里配好的服务器会列出来，点「添加」直接导入；也可以手填地址、用户名，选密钥（~/.ssh 里的私钥）
@@ -208,6 +210,7 @@ bot/
   tools/phone.py  手机操作工具（进程内 MCP 服务器 phone：截图、读界面、点击、输入…）
   tools/server.py 服务器工具（进程内 MCP 服务器 server：看状态、执行命令、打开终端）
   server.py       我的服务器：SSH 连接（paramiko）、状态采集、命令、~/.ssh/config 导入、打开终端
+  wifi.py         分享当前 WiFi：netsh 读出正连着的 WiFi 和密码，生成二维码和口令
   phone.py        手机投屏：scrcpy / adb 下载、连接（USB、无线配对）、投屏窗口
   phonebar.py     投屏窗口旁边的竖向工具条
   app.py          桌面面板：pywebview 窗口、托盘、全局快捷键

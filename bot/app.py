@@ -19,7 +19,7 @@ from pathlib import Path
 
 from .tools import desktop  # 先导入：设置 DPI 感知
 from .tools import phone as phone_tools
-from . import blog, dock, fileindex, island, phone, server, shellicon, sop, suggest, tokenstats, updater, usage
+from . import blog, dock, fileindex, island, phone, server, shellicon, sop, suggest, tokenstats, updater, usage, wifi
 from .agent import BotSession
 from .brand import make_icon
 from . import __version__
@@ -195,6 +195,9 @@ class Api:
         elif STARTUP_LINK.exists():
             STARTUP_LINK.unlink()
         return STARTUP_LINK.exists()
+
+    def wifi_share(self):
+        return wifi.share()
 
     def open_path(self, which: str):
         os.startfile(str({"config": CONFIG_PATH, "memory": MEMORY_PATH, "folder": ROOT}[which]))

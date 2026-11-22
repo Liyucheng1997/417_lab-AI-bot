@@ -1,13 +1,12 @@
-"""分享当前 WiFi：读出电脑正连着的 WiFi（含密码），生成手机相机能直接扫的二维码和一段口令。
+"""分享当前 WiFi：读出电脑正连着的 WiFi（含密码），生成手机相机能直接扫的二维码，
+以及一段可以直接发给别人的「名称 + 密码」文字。
 
-二维码是通用的 WIFI:T:WPA;S:..;P:..;; 格式；口令（WF1.xxx）和「WiFi 共享器」网页版通用：
-https://liyucheng1997.github.io/469_lab-WIFI-sharing/
+二维码是通用的 WIFI:T:WPA;S:..;P:..;; 格式，不依赖任何网站或别的软件。
 """
 from __future__ import annotations
 
 import base64
 import io
-import json
 import re
 import subprocess
 import tempfile
@@ -90,12 +89,6 @@ def qr_text(w: dict) -> str:
     return out + ";"
 
 
-def share_code(w: dict) -> str:
-    raw = json.dumps([w["ssid"], w["password"], w["type"], 1 if w.get("hidden") else 0],
-                     ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    return "WF1." + base64.urlsafe_b64encode(raw).decode().rstrip("=")
-
-
 def qr_png(text: str) -> str:
     import qrcode
     q = qrcode.QRCode(border=2, box_size=8, error_correction=qrcode.constants.ERROR_CORRECT_M)
@@ -114,10 +107,9 @@ def share() -> dict:
         return {"ok": False, "error": str(e)}
     except Exception as e:  # netsh 超时等
         return {"ok": False, "error": f"读取 WiFi 失败：{e}"}
-    code = share_code(w)
+    lines = [f"WiFi：{w['ssid']}", "无密码，直接连接" if w["type"] == "nopass" else f"密码：{w['password']}"]
     return {
         "ok": True, "ssid": w["ssid"], "password": w["password"], "type": w["type"],
         "qr": qr_png(qr_text(w)),
-        "message": f"【WiFi口令】{code}\n复制这段文字，打开「WiFi 共享器」即可加入「{w['ssid']}」\n"
-                   "https://liyucheng1997.github.io/469_lab-WIFI-sharing/",
+        "message": "\n".join(lines),
     }

@@ -346,7 +346,7 @@
       { label: '墨迹颜色与形象大小…', run: openLook },
       { label: '顶部灵动岛', hint: '液态玻璃', checked: state.island, run: async () => { state.island = await api.set_island(!state.island); toast(state.island ? '已打开灵动岛' : '已关闭灵动岛'); } },
       '-',
-      { label: '分享当前 WiFi…', hint: '二维码 / 口令', run: openWifi },
+      { label: '分享当前 WiFi…', hint: '二维码 / 密码', run: openWifi },
       { label: '开机自动启动', checked: state.autostart, run: async () => { state.autostart = await api.set_autostart(!state.autostart); toast(state.autostart ? '已开启开机自启' : '已关闭开机自启'); } },
       '-', { header: '截图与识字' },
       { label: '打开录屏文件夹', hint: 'Ctrl+F1 录屏', run: () => api.sop_cmd('record-folder') },
@@ -590,7 +590,7 @@
     };
   }
 
-  // ---------------- 分享当前 WiFi：手机相机扫码直接连，口令发给不在身边的人 ----------------
+  // ---------------- 分享当前 WiFi：手机相机扫码直接连，名称和密码可以复制了发给别人 ----------------
   async function openWifi() {
     closePop();
     const box = pop = el('div', 'popover wifi-pop', '<div class="wifi-wait"><div class="spinner"></div>正在读取当前 WiFi…</div>');
@@ -607,11 +607,11 @@
       ${open ? '<div class="wifi-pwd">无密码</div>' : '<div class="wifi-pwd"><span id="wf-pwd">••••••••</span><button class="wifi-link" id="wf-show">显示</button></div>'}
       <p class="look-note">手机用系统相机扫这个码就能连上，不用装软件（微信扫不行）。</p>
       <div class="wifi-actions">
-        <button class="btn btn-primary btn-sm" data-k="code">复制口令</button>
-        ${open ? '' : '<button class="btn btn-sm" data-k="pwd">复制密码</button>'}
+        <button class="btn btn-primary btn-sm" data-k="code">复制名称和密码</button>
+        ${open ? '' : '<button class="btn btn-sm" data-k="pwd">只复制密码</button>'}
       </div>`;
     const copy = (text, msg) => navigator.clipboard.writeText(text).then(() => toast(msg, 'success'), () => toast('复制失败', 'error'));
-    box.querySelector('[data-k="code"]').onclick = () => copy(w.message, '口令已复制，发给对方即可');
+    box.querySelector('[data-k="code"]').onclick = () => copy(w.message, '已复制，发给对方即可');
     if (open) return;
     box.querySelector('[data-k="pwd"]').onclick = () => copy(w.password, '密码已复制');
     let shown = false;

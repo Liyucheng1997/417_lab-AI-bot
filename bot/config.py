@@ -47,6 +47,7 @@ class Config:
     load_user_settings: bool = True
     check_updates: bool = True
     api_credit: dict = field(default_factory=dict)
+    gemini: dict = field(default_factory=dict)
     extra_mcp_servers: dict = field(default_factory=dict)
     phone_audio: bool = True
     phone_screen_off: bool = False

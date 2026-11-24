@@ -35,7 +35,7 @@ body { background: var(--bg); }
 .update-bar.working #btn-update, .update-bar.working #btn-update-close { display: none; }
 
 /* 用量卡片 */
-.usage-pop { width: 320px; padding: 6px 14px 10px; }
+.usage-pop { width: 320px; padding: 6px 14px 10px; max-height: calc(100vh - 64px); overflow-y: auto; }
 .usage-loading { padding: 18px 0; text-align: center; color: var(--text-3); font-size: 12.5px; }
 .usage-sec { padding: 10px 0 12px; border-bottom: 1px solid var(--line); }
 .usage-h { display: flex; align-items: baseline; gap: 6px; font-weight: 600; font-size: 13px; letter-spacing: -0.01em; margin-bottom: 8px; }

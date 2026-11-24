@@ -19,7 +19,7 @@ from pathlib import Path
 
 from .tools import desktop  # 先导入：设置 DPI 感知
 from .tools import phone as phone_tools
-from . import blog, dock, fileindex, island, phone, server, shellicon, sop, suggest, tokenstats, updater, usage, wifi
+from . import blog, dock, fileindex, gemini, island, phone, server, shellicon, sop, suggest, tokenstats, updater, usage, wifi
 from .agent import BotSession
 from .brand import make_icon
 from . import __version__
@@ -139,9 +139,21 @@ class Api:
         usage.clear_admin_key()
         self._app.usage_cache = None
 
+    def gemini_login(self):
+        """开命令行窗口跑 gcloud 登录；登录完再刷新用量面板。"""
+        self._app.usage_cache = None
+        return gemini.login()
+
     def open_url(self, which: str):
         import webbrowser
-        webbrowser.open({"billing": usage.BILLING_URL, "usage": usage.USAGE_URL, "admin_keys": usage.ADMIN_KEYS_DOC}[which])
+        g = self._app.cfg.gemini or {}
+        account = g.get("billing_account", "")
+        url = {"billing": usage.BILLING_URL, "usage": usage.USAGE_URL, "admin_keys": usage.ADMIN_KEYS_DOC,
+               "g_spend": gemini.SPEND_URL, "g_sdk": "https://cloud.google.com/sdk/docs/install",
+               "g_credits": gemini.CREDITS_URL.format(account=account),
+               "g_export": gemini.EXPORT_URL.format(account=account)}.get(which)
+        if url:
+            webbrowser.open(url)
 
     def send(self, text: str):
         self._app.submit(self._app.bot.send(text))
@@ -916,6 +928,9 @@ class BotApp:
             if not force and self.usage_cache and time.time() - self.usage_cache["ts"] < 60:
                 return self.usage_cache
             sub_future = self.submit(usage.subscription())
+            gem: dict = {}
+            gem_thread = threading.Thread(target=lambda: gem.update(gemini.usage(self.cfg.gemini)), daemon=True)
+            gem_thread.start()
             api = usage.api_usage(credit=self.cfg.api_credit)
             try:
                 tokens = tokenstats.summary()  # 本机 token 用量折合 API 价格
@@ -925,7 +940,10 @@ class BotApp:
                 sub = sub_future.result(timeout=40)
             except Exception as e:
                 sub = {"error": f"读取订阅用量失败：{e}"}
-            self.usage_cache = {"sub": sub, "api": api, "tokens": tokens,
+            gem_thread.join(timeout=60)
+            if not gem:
+                gem = {"error": "读取 Google 账单失败或超时"}
+            self.usage_cache = {"sub": sub, "api": api, "gemini": gem, "tokens": tokens,
                                 "ts": time.time(), "time": datetime.now().strftime("%H:%M")}
             return self.usage_cache
 

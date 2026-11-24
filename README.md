@@ -148,6 +148,12 @@ Bot 工作中可看进度、一键停止；音乐可看进度、切歌、暂停�
   需要在 Console 创建 Admin API key（`sk-ant-admin01-…`，组织账号才有），在卡片里粘贴一次即可，
   密钥只存在 Windows 凭据管理器（`MyAIBot/AnthropicAdminKey`），不写进配置文件。
   公开 API 不提供预付费余额，卡片里的「去官网充值」会打开 Console 账单页。
+- **Gemini API**（Google AI Studio，和 Claude API 上下排在「API 额度」里）：赠金还剩多少、哪笔最早到期，
+  今天 / 最近 7 天 / 本月用了多少 token、出了多少张图、折合多少钱，以及按模型的明细。
+  Google 没有公开余额接口，所以拼起来算：用量来自 Cloud Monitoring（结算账号下所有项目，几分钟延迟），
+  金额 = token × 官方单价（按欧洲央行汇率换成账单币种）；赠金 = `config.yaml` 里 `gemini.credits` 的快照
+  − 之后的花费，开了 Cloud Billing 导出到 BigQuery 的话，每天按真实账单核对一次（核对到昨天 0 点），之后的用估算。
+  第一次用要装 Google Cloud CLI，在卡片里点「登录 Google 账号」授权一次。
 
 终端版（调试用）：
 

@@ -53,6 +53,20 @@ check_updates: true
 #   end: 2026-12-02
 api_credit: {}
 
+# Google AI Studio（Gemini API）：用量面板「API 额度」里显示每天用了多少 token、折合多少钱、赠金还剩多少
+#   用量来自 Cloud Monitoring（结算账号下所有项目），金额 = token × 官方单价，按欧洲央行汇率换成 currency
+#   billing_account: 结算账号 ID    currency: 账单币种    project: 可选，额外要统计的项目
+#   credits: Console「结算 → 赠金」里每笔赠金的剩余（remaining）、原始值（amount）、结束日期（end）
+#   as_of: 上面这些剩余对应的时刻（本地时间），之后的花费会从赠金里扣掉；隔一阵去 Console 看一眼再更新更准
+#   第一次用要在面板里点「登录 Google 账号」（需要先装 Google Cloud CLI）
+# gemini:
+#   billing_account: 000000-000000-000000
+#   currency: EUR
+#   as_of: 2026-11-24 18:10
+#   credits:
+#     - {remaining: 8.80, amount: 8.80, end: 2027-10-28}
+gemini: {}
+
 # 外观（面板「设置 → 墨迹颜色与形象大小」里可以直接调）：背景墨迹颜色、浓淡（0 = 关闭）、3D 形象高度（像素）
 fluid_color: "#af52de"
 fluid_opacity: 0.8

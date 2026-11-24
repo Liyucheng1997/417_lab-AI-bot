@@ -406,6 +406,66 @@
       <div class="usage-links"><a data-url="billing">去官网充值 ↗</a><a data-url="usage">看详细账单 ↗</a><a id="admin-key-clear" title="删除保存在本机的 Admin API key，之后不再显示 API 用量">删除密钥</a></div>`;
   }
 
+  // Google AI Studio（Gemini API）：Cloud Monitoring 的 token 用量 × 官方价格，赠金 = Console 快照 − 之后的花费
+  const CUR = { EUR: '€', USD: '$', GBP: '£', JPY: '¥', CNY: '¥' };
+  const fmtMoney = (x, cur, digits = 2) => `${x < 0 ? '−' : ''}${CUR[cur] || (cur ? cur + ' ' : '$')}${Math.abs(x).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+  const fmtSmall = (x, cur) => (x > 0 && x < 0.01 ? `<${fmtMoney(0.01, cur)}` : fmtMoney(x, cur));
+
+  function gemCredit(g) {
+    const c = g.credit, cur = g.currency;
+    const pct = c.amount ? (c.used / c.amount) * 100 : 0;
+    const level = c.over > 0 || c.remaining <= 0 ? 'danger' : c.remaining / (c.amount || 1) <= 0.2 ? 'warn' : '';
+    const est = g.used_billed ? `（账单 ${fmtMoney(g.used_billed, cur)} + 估算 ${fmtMoney(g.used_est, cur)}）` : g.used_est ? ` · 其中 ${fmtMoney(g.used_est, cur)} 是 ${esc(g.as_of)} 之后按用量估算` : '';
+    const when = c.over > 0 ? `赠金已用完，另外花了 ${fmtMoney(c.over, cur)}（从余额 / 账单扣）`
+      : c.next_end ? `最早到期的一笔还剩 ${fmtMoney(c.next_left, cur)}，${c.next_end}到期（${c.next_days} 天后）` : '赠金都已用完或过期';
+    const tip = c.items.map((x) => `${x.end} 到期：剩 ${fmtMoney(x.remaining, cur)} / ${fmtMoney(x.amount, cur)}${x.expired ? '（已过期）' : ''}`).join('\n');
+    return `<div class="meter credit ${level}" title="${esc(tip)}"><div class="meter-top"><span>赠金 剩余</span><b>${fmtMoney(c.remaining, cur)}<small> / ${fmtMoney(c.amount, cur)}</small></b></div>
+      <div class="meter-bar"><i style="width:${Math.min(100, pct)}%"></i></div>
+      <small>已用 ${fmtMoney(c.used, cur)}${est}</small><small>${esc(when)}</small></div>`;
+  }
+
+  function usageGemini(g) {
+    if (!g) return '';
+    if (g.need_config) return `<p class="usage-note">在配置文件里填好 <code>gemini</code> 一节（结算账号、赠金）后显示 Google AI Studio 的用量和赠金。</p>`;
+    const cur = g.currency || 'EUR';
+    const credit = g.credit && !g.error && !g.need_login ? gemCredit(g) : '';
+    if (g.need_login) {
+      const act = g.has_gcloud
+        ? `<div class="key-row"><button class="btn btn-primary btn-sm" id="gem-login">登录 Google 账号</button></div>`
+        : `<div class="usage-links"><a data-url="g_sdk">先安装 Google Cloud CLI ↗</a></div>`;
+      return `<p class="usage-note">${g.expired ? 'Google 登录已过期，' : ''}登录一次 Google（用开 AI Studio 的那个账号）后显示每天用了多少 token、花了多少、赠金还剩多少。授权只保存在本机。</p>${act}`;
+    }
+    if (g.error) return `<p class="usage-note err">${esc(g.error)}</p><div class="usage-links"><a id="gem-login">重新登录 Google</a></div>`;
+    const imgs = (n) => (n ? ` · ${n} 张图` : '');
+    const max = Math.max(...g.daily.map((d) => d.cost), 0.0001);
+    const bars = g.daily.map((d) => {
+      const tip = `${d.label}：约 ${fmtMoney(d.cost, cur)}，${fmtTokens(d.tokens)} token${imgs(d.images)}` +
+        d.models.map(([n, c, k, im]) => `\n${n}：约 ${fmtMoney(c, cur, 3)}（${fmtTokens(k)} token${imgs(im)}）`).join('');
+      return `<div title="${esc(tip)}"><i style="height:${Math.max(d.cost ? 8 : 2, Math.round((d.cost / max) * 100))}%"></i><small>${esc(d.label)}</small></div>`;
+    }).join('');
+    const top = Math.max(...g.models.map((m) => m.cost), 0.0001);
+    const rows = g.models.map((m) => {
+      const parts = [`输入 ${fmtTokens(m.in)}`, m.text ? `文字输出 ${fmtTokens(m.text)}` : '', m.image ? `图片输出 ${fmtTokens(m.image)}` : ''].filter(Boolean).join(' · ');
+      return `<div class="meter model" title="${esc(parts + ' token' + (m.images ? `\n约 ${m.images} 张图（按 1K 分辨率算）` : ''))}"><div class="meter-top"><span>${esc(m.name)}</span><b>${m.priced ? '' : '估价 '}${fmtSmall(m.cost, cur)}</b></div>
+        <div class="meter-bar"><i style="width:${Math.max(1.5, (m.cost / top) * 100)}%"></i></div>
+        <small>${fmtTokens(m.in + m.text + m.image)} token${imgs(m.images)} · ${parts}</small></div>`;
+    }).join('');
+    const notes = [
+      g.warn ? `<p class="usage-note">${esc(g.warn)}</p>` : '',
+      g.stale ? `<p class="usage-note err">赠金快照超过 6 周了，估算可能不全：去 Console 看一眼赠金剩余，更新到配置文件里。</p>` : '',
+    ].join('');
+    return `${notes}${credit}<div class="stats">
+        <div><small>今天</small><b>${fmtSmall(g.today.cost, cur)}</b><small>${fmtTokens(g.today.tokens)} token${imgs(g.today.images)}</small></div>
+        <div><small>最近 7 天</small><b>${fmtSmall(g.week.cost, cur)}</b><small>${fmtTokens(g.week.tokens)} token${imgs(g.week.images)}</small></div>
+        <div><small>本月</small><b>${fmtSmall(g.month.cost, cur)}</b><small>${fmtTokens(g.month.tokens)} token</small></div>
+      </div>
+      <div class="spark-h">每天花费<small>鼠标移到柱子上看各模型</small></div>
+      <div class="spark">${bars}</div>
+      ${rows ? `<div class="usage-sub">最近 7 天 · 按模型</div>${rows}` : ''}
+      <p class="usage-note value-note">金额 = token × 官方单价（1 美元 = ${fmtMoney(g.rate, cur, 3)}），几分钟延迟；${g.has_export ? `赠金每天按真实账单核对一次，已核对到 ${esc(g.billed_until)}，之后的按估算` : '赠金在账单导出有数据后每天按真实账单核对一次'}。</p>
+      <div class="usage-links"><a data-url="g_spend">AI Studio 花费 ↗</a><a data-url="g_credits">Console 赠金 ↗</a>${g.has_export ? '' : '<a data-url="g_export" title="可选：打开后用真实账单核对赠金，误差更小">账单导出 ↗</a>'}</div>`;
+  }
+
   // 订阅里用掉的 token 按 API 官方价格折算（今天 / 7 天 / 30 天，按模型分开）
   const RANGES = { today: '今天', '7d': '7 天', '30d': '30 天' };
   const prefGet = (k, d) => { try { return localStorage.getItem(k) || d; } catch (e) { return d; } };
@@ -450,12 +510,17 @@
     lastUsage = u;
     const tabs = `<div class="seg usage-tabs" id="usage-tabs"><button data-tab="sub" class="${usageTab === 'sub' ? 'on' : ''}">订阅额度</button><button data-tab="api" class="${usageTab === 'api' ? 'on' : ''}">API 额度</button></div>`;
     const body = usageTab === 'api'
-      ? `<div class="usage-sec"><div class="usage-h">API<small>Claude Console</small></div>${usageApi(u.api)}</div>`
+      ? `<div class="usage-sec"><div class="usage-h">Claude API<small>Claude Console</small></div>${usageApi(u.api)}</div>
+         <div class="usage-sec"><div class="usage-h">Gemini API<small>Google AI Studio</small></div>${usageGemini(u.gemini)}</div>`
       : `<div class="usage-sec"><div class="usage-h">Claude 订阅<small>本机 Claude Code</small></div>${usageSub(u.sub)}</div>
          <div class="usage-sec"><div class="usage-h">折合 API 价格<small>本机所有 Claude Code 会话</small></div>${usageValue(u.tokens)}</div>`;
     pop.innerHTML = `${tabs}${body}<div class="usage-foot"><span>更新于 ${esc(u.time)}</span><a id="usage-refresh">刷新</a></div>`;
     pop.querySelectorAll('#usage-tabs button').forEach((b) => b.onclick = () => {
       usageTab = b.dataset.tab; prefSet('usageTab', usageTab); renderUsage(lastUsage);
+    });
+    pop.querySelectorAll('#gem-login').forEach((b) => b.onclick = async () => {
+      const r = await api.gemini_login();
+      if (r.ok) toast('在弹出的浏览器里授权，完成后点「刷新」', 'success'); else toast(r.error, 'error');
     });
     pop.querySelectorAll('#usage-range button').forEach((b) => b.onclick = () => {
       usageRange = b.dataset.range; prefSet('usageRange', usageRange); renderUsage(lastUsage);

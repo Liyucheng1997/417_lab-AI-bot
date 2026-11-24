@@ -508,10 +508,14 @@
 
   function renderUsage(u) {
     lastUsage = u;
-    const tabs = `<div class="seg usage-tabs" id="usage-tabs"><button data-tab="sub" class="${usageTab === 'sub' ? 'on' : ''}">订阅额度</button><button data-tab="api" class="${usageTab === 'api' ? 'on' : ''}">API 额度</button></div>`;
+    const TABS = { sub: '订阅额度', api: 'Claude API', gemini: 'Gemini API' };
+    if (!TABS[usageTab]) usageTab = 'sub';
+    const tabs = `<div class="seg usage-tabs" id="usage-tabs">${Object.entries(TABS).map(([k, label]) =>
+      `<button data-tab="${k}" class="${usageTab === k ? 'on' : ''}">${label}</button>`).join('')}</div>`;
     const body = usageTab === 'api'
-      ? `<div class="usage-sec"><div class="usage-h">Claude API<small>Claude Console</small></div>${usageApi(u.api)}</div>
-         <div class="usage-sec"><div class="usage-h">Gemini API<small>Google AI Studio</small></div>${usageGemini(u.gemini)}</div>`
+      ? `<div class="usage-sec"><div class="usage-h">Claude API<small>Claude Console</small></div>${usageApi(u.api)}</div>`
+      : usageTab === 'gemini'
+      ? `<div class="usage-sec"><div class="usage-h">Gemini API<small>Google AI Studio</small></div>${usageGemini(u.gemini)}</div>`
       : `<div class="usage-sec"><div class="usage-h">Claude 订阅<small>本机 Claude Code</small></div>${usageSub(u.sub)}</div>
          <div class="usage-sec"><div class="usage-h">折合 API 价格<small>本机所有 Claude Code 会话</small></div>${usageValue(u.tokens)}</div>`;
     pop.innerHTML = `${tabs}${body}<div class="usage-foot"><span>更新于 ${esc(u.time)}</span><a id="usage-refresh">刷新</a></div>`;
